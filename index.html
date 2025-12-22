@@ -3,78 +3,1383 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Poop Runner</title>
+    <title>Banana Runner</title>
     <style>
-        body {
+        * {
             margin: 0;
             padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 70%, #FAFAFA 100%);
-            font-family: monospace;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
             overflow: hidden;
+            background: #000;
+            font-family: monospace;
         }
         canvas {
-            border: 2px solid #333;
+            display: block;
             background: #FAFAFA;
             image-rendering: pixelated;
             image-rendering: -moz-crisp-edges;
             image-rendering: crisp-edges;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        /* Auth Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .auth-modal {
+            background: #1a1a2e;
+            border: 3px solid #FFE135;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 0 30px rgba(255, 225, 53, 0.3);
+        }
+        .auth-modal h2 {
+            color: #FFE135;
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 28px;
+        }
+        .auth-modal input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            background: #16213e;
+            border: 2px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .auth-modal input:focus {
+            outline: none;
+            border-color: #FFE135;
+        }
+        .auth-modal button {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 10px;
+            background: #FFE135;
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-family: monospace;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+        .auth-modal button:hover {
+            background: #FFC107;
+            transform: scale(1.02);
+        }
+        .auth-modal button.secondary {
+            background: transparent;
+            border: 2px solid #666;
+            color: #aaa;
+        }
+        .auth-modal button.secondary:hover {
+            border-color: #FFE135;
+            color: #FFE135;
+        }
+        .auth-modal .toggle-text {
+            text-align: center;
+            color: #888;
+            margin-top: 15px;
+        }
+        .auth-modal .toggle-text a {
+            color: #FFE135;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .auth-modal .error-msg {
+            color: #ff6b6b;
+            text-align: center;
+            margin-bottom: 15px;
+            min-height: 20px;
+        }
+        .auth-modal .success-msg {
+            color: #4CAF50;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .user-info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 100;
+            text-align: right;
+        }
+        .user-info .username {
+            color: #FFE135;
+            font-weight: bold;
+        }
+        .user-info .logout-btn {
+            color: #888;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .user-info .logout-btn:hover {
+            color: #ff6b6b;
         }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- User Info Display -->
+    <div id="userInfo" class="user-info" style="display: none;">
+        <span class="username" id="displayUsername"></span>
+        <span class="logout-btn" onclick="logout()">[Logout]</span>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal-overlay">
+        <div class="auth-modal">
+            <h2 id="authTitle">Login</h2>
+            <div id="authError" class="error-msg"></div>
+            <div id="authSuccess" class="success-msg" style="display: none;"></div>
+            <form id="authForm">
+                <input type="text" id="authUsername" placeholder="Username" autocomplete="username" style="display: none;">
+                <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required>
+                <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required>
+                <button type="submit" id="authSubmit">Login</button>
+                <button type="button" class="secondary" onclick="closeAuthModal()">Play as Guest</button>
+            </form>
+            <div class="toggle-text" id="authToggle">
+                Don't have an account? <a onclick="toggleAuthMode()">Sign Up</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = false;
 
-        // Constants
-        const GROUND_LEVEL = 330;
-        const PLAYER_SCALE = 4;
-        const ENTITY_SCALE = 8;
-        const PLAYER_WIDTH = 12 * PLAYER_SCALE; // 48
-        const PLAYER_HEIGHT = 8 * PLAYER_SCALE; // 32
-        const ENTITY_WIDTH = 4 * ENTITY_SCALE; // 32
-        const ENTITY_HEIGHT = 4 * ENTITY_SCALE; // 32
-        const BANANA_HEIGHT_OFFSET = 28; // Floating higher
+        // ============================================
+        // SUPABASE CONFIGURATION
+        // Replace these with your Supabase project values
+        // ============================================
+        const SUPABASE_URL = 'https://cwolgatnphccqvunihav.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3b2xnYXRucGhjY3F2dW5paGF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0Mjc2NTksImV4cCI6MjA4MjAwMzY1OX0.IyhyEfc1OWnXYJ5FADPtIdpzRWBn2EXKlIt85l2_xLc';
 
-        // Sprites (pixel art arrays)
+        // Initialize Supabase client
+        let supabase = null;
+        let currentUser = null;
+        let userProfile = null;
+        let isAuthMode = 'login'; // 'login' or 'signup'
+
+        function initSupabase() {
+            if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                checkAuth();
+            } else {
+                console.log('Supabase not configured - running in guest mode');
+            }
+        }
+
+        // ============================================
+        // AUTHENTICATION FUNCTIONS
+        // ============================================
+        async function checkAuth() {
+            if (!supabase) return;
+
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                currentUser = session.user;
+                await loadUserProfile();
+                updateUserDisplay();
+            }
+
+            // Listen for auth changes
+            supabase.auth.onAuthStateChange(async (event, session) => {
+                if (session) {
+                    currentUser = session.user;
+                    await loadUserProfile();
+                    updateUserDisplay();
+                } else {
+                    currentUser = null;
+                    userProfile = null;
+                    updateUserDisplay();
+                }
+            });
+        }
+
+        async function loadUserProfile() {
+            if (!supabase || !currentUser) return;
+
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', currentUser.id)
+                .single();
+
+            if (data) {
+                userProfile = data;
+                // Also load skins and achievements
+                await loadPlayerProgress();
+            }
+        }
+
+        async function signUp(email, password, username) {
+            if (!supabase) {
+                showAuthError('Supabase not configured');
+                return false;
+            }
+
+            const { data, error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: { username }
+                }
+            });
+
+            if (error) {
+                showAuthError(error.message);
+                return false;
+            }
+
+            // Create profile
+            if (data.user) {
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .upsert({
+                        id: data.user.id,
+                        username: username,
+                        email: email
+                    });
+
+                if (profileError) {
+                    console.error('Profile creation error:', profileError);
+                }
+            }
+
+            showAuthSuccess('Account created! Check your email to verify.');
+            return true;
+        }
+
+        async function signIn(email, password) {
+            if (!supabase) {
+                showAuthError('Supabase not configured');
+                return false;
+            }
+
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password
+            });
+
+            if (error) {
+                showAuthError(error.message);
+                return false;
+            }
+
+            closeAuthModal();
+            return true;
+        }
+
+        async function logout() {
+            if (!supabase) return;
+
+            await supabase.auth.signOut();
+            currentUser = null;
+            userProfile = null;
+            updateUserDisplay();
+            gameState = 'menu';
+        }
+
+        // ============================================
+        // SCORE PERSISTENCE
+        // ============================================
+        async function saveScore(finalScore, bananas, landPlayed) {
+            if (!supabase || !currentUser) return;
+
+            // Save to game_sessions
+            const { error: sessionError } = await supabase
+                .from('game_sessions')
+                .insert({
+                    player_id: currentUser.id,
+                    score: finalScore,
+                    bananas_collected: bananas,
+                    land_played: landPlayed,
+                    game_mode: 'solo'
+                });
+
+            if (sessionError) {
+                console.error('Error saving session:', sessionError);
+                return;
+            }
+
+            // Update profile stats
+            if (userProfile) {
+                const updates = {
+                    total_games: (userProfile.total_games || 0) + 1,
+                    total_bananas: (userProfile.total_bananas || 0) + bananas,
+                    total_score: (userProfile.total_score || 0) + finalScore
+                };
+
+                if (finalScore > (userProfile.high_score || 0)) {
+                    updates.high_score = finalScore;
+                }
+
+                const { error: updateError } = await supabase
+                    .from('profiles')
+                    .update(updates)
+                    .eq('id', currentUser.id);
+
+                if (!updateError) {
+                    userProfile = { ...userProfile, ...updates };
+                }
+            }
+        }
+
+        async function getLeaderboard(land = null, limit = 10) {
+            if (!supabase) return [];
+
+            let query = supabase
+                .from('leaderboard')
+                .select('*')
+                .order('high_score', { ascending: false })
+                .limit(limit);
+
+            if (land) {
+                // Get land-specific leaderboard from game_sessions
+                const { data, error } = await supabase
+                    .from('game_sessions')
+                    .select('player_id, score, profiles!inner(username)')
+                    .eq('land_played', land)
+                    .order('score', { ascending: false })
+                    .limit(limit);
+
+                return data || [];
+            }
+
+            const { data, error } = query;
+            return data || [];
+        }
+
+        // ============================================
+        // MULTIPLAYER LOBBY FUNCTIONS
+        // ============================================
+        async function createLobby() {
+            if (!supabase || !currentUser) return null;
+
+            const lobbyCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+            const { data, error } = await supabase
+                .from('game_lobbies')
+                .insert({
+                    code: lobbyCode,
+                    host_id: currentUser.id,
+                    land: selectedLand,
+                    status: 'waiting'
+                })
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error creating lobby:', error);
+                return null;
+            }
+
+            currentLobby = data;
+            isLobbyHost = true;
+            await joinLobbyAsPlayer(data.id);
+            subscribeLobbyUpdates(data.id);
+            return data;
+        }
+
+        async function findOrCreateLobby() {
+            if (!supabase || !currentUser) return;
+
+            // First try to find an existing waiting lobby
+            const { data: existingLobbies, error } = await supabase
+                .from('game_lobbies')
+                .select('*')
+                .eq('status', 'waiting')
+                .neq('host_id', currentUser.id)
+                .order('created_at', { ascending: true })
+                .limit(1);
+
+            if (existingLobbies && existingLobbies.length > 0) {
+                // Join existing lobby
+                currentLobby = existingLobbies[0];
+                isLobbyHost = false;
+                selectedLand = currentLobby.land;
+                await joinLobbyAsPlayer(currentLobby.id);
+                subscribeLobbyUpdates(currentLobby.id);
+            } else {
+                // Create new lobby
+                await createLobby();
+            }
+
+            gameState = 'lobby';
+        }
+
+        async function joinLobbyAsPlayer(lobbyId) {
+            if (!supabase || !currentUser) return;
+
+            const { error } = await supabase
+                .from('lobby_players')
+                .insert({
+                    lobby_id: lobbyId,
+                    player_id: currentUser.id,
+                    is_ready: false
+                });
+
+            if (error) {
+                console.error('Error joining lobby:', error);
+            }
+        }
+
+        function subscribeLobbyUpdates(lobbyId) {
+            if (!supabase) return;
+
+            // Subscribe to lobby changes
+            lobbySubscription = supabase
+                .channel(`lobby:${lobbyId}`)
+                .on('postgres_changes',
+                    { event: '*', schema: 'public', table: 'lobby_players', filter: `lobby_id=eq.${lobbyId}` },
+                    (payload) => {
+                        loadLobbyPlayers(lobbyId);
+                    }
+                )
+                .on('postgres_changes',
+                    { event: 'UPDATE', schema: 'public', table: 'game_lobbies', filter: `id=eq.${lobbyId}` },
+                    (payload) => {
+                        if (payload.new.status === 'playing') {
+                            startMultiplayerGame();
+                        }
+                    }
+                )
+                .subscribe();
+
+            loadLobbyPlayers(lobbyId);
+        }
+
+        async function loadLobbyPlayers(lobbyId) {
+            if (!supabase) return;
+
+            const { data, error } = await supabase
+                .from('lobby_players')
+                .select('*, profiles:player_id(username)')
+                .eq('lobby_id', lobbyId);
+
+            if (data) {
+                lobbyPlayers = data;
+
+                // Auto-start when 2 players are ready (host triggers)
+                if (isLobbyHost && lobbyPlayers.length === 2) {
+                    const allReady = lobbyPlayers.every(p => p.is_ready);
+                    if (allReady) {
+                        await startLobbyGame();
+                    }
+                }
+            }
+        }
+
+        async function toggleReady() {
+            if (!supabase || !currentUser || !currentLobby) return;
+
+            const currentPlayer = lobbyPlayers.find(p => p.player_id === currentUser.id);
+            if (!currentPlayer) return;
+
+            await supabase
+                .from('lobby_players')
+                .update({ is_ready: !currentPlayer.is_ready })
+                .eq('lobby_id', currentLobby.id)
+                .eq('player_id', currentUser.id);
+        }
+
+        async function startLobbyGame() {
+            if (!supabase || !currentLobby || !isLobbyHost) return;
+
+            await supabase
+                .from('game_lobbies')
+                .update({ status: 'playing' })
+                .eq('id', currentLobby.id);
+        }
+
+        function startMultiplayerGame() {
+            gameMode = 'multiplayer';
+            opponentScore = 0;
+            opponentBananas = 0;
+            gameResult = null;
+            startGame();
+
+            // Subscribe to opponent updates
+            if (supabase && currentLobby) {
+                subscribeGameUpdates();
+            }
+        }
+
+        function subscribeGameUpdates() {
+            if (!supabase || !currentLobby) return;
+
+            supabase
+                .channel(`game:${currentLobby.id}`)
+                .on('broadcast', { event: 'game_update' }, (payload) => {
+                    if (payload.payload.player_id !== currentUser.id) {
+                        opponentScore = payload.payload.score;
+                        opponentBananas = payload.payload.bananas;
+                        if (payload.payload.gameOver) {
+                            // Opponent finished
+                        }
+                    }
+                })
+                .subscribe();
+        }
+
+        function broadcastGameState(isGameOver = false) {
+            if (!supabase || !currentLobby || gameMode !== 'multiplayer') return;
+
+            supabase
+                .channel(`game:${currentLobby.id}`)
+                .send({
+                    type: 'broadcast',
+                    event: 'game_update',
+                    payload: {
+                        player_id: currentUser.id,
+                        score: score,
+                        bananas: bananasCollected,
+                        gameOver: isGameOver
+                    }
+                });
+        }
+
+        async function leaveLobby() {
+            if (!supabase || !currentLobby) {
+                gameState = 'menu';
+                return;
+            }
+
+            // Unsubscribe from updates
+            if (lobbySubscription) {
+                supabase.removeChannel(lobbySubscription);
+                lobbySubscription = null;
+            }
+
+            // Remove player from lobby
+            await supabase
+                .from('lobby_players')
+                .delete()
+                .eq('lobby_id', currentLobby.id)
+                .eq('player_id', currentUser.id);
+
+            // If host, delete the lobby
+            if (isLobbyHost) {
+                await supabase
+                    .from('game_lobbies')
+                    .delete()
+                    .eq('id', currentLobby.id);
+            }
+
+            currentLobby = null;
+            lobbyPlayers = [];
+            isLobbyHost = false;
+            gameState = 'menu';
+        }
+
+        // ============================================
+        // SKINS & ACHIEVEMENTS FUNCTIONS
+        // ============================================
+        async function loadPlayerProgress() {
+            if (!supabase || !currentUser) return;
+
+            // Load unlocked skins
+            const { data: skins } = await supabase
+                .from('player_skins')
+                .select('skin_id')
+                .eq('player_id', currentUser.id);
+
+            if (skins) {
+                unlockedSkins = ['default', ...skins.map(s => s.skin_id)];
+            }
+
+            // Load equipped skin from profile
+            if (userProfile?.equipped_skin) {
+                selectedSkin = userProfile.equipped_skin;
+            }
+
+            // Load achievements
+            const { data: achievements } = await supabase
+                .from('player_achievements')
+                .select('achievement_id')
+                .eq('player_id', currentUser.id);
+
+            if (achievements) {
+                unlockedAchievements = achievements.map(a => a.achievement_id);
+            }
+        }
+
+        async function unlockSkin(skinId) {
+            if (!supabase || !currentUser || unlockedSkins.includes(skinId)) return;
+
+            const { error } = await supabase
+                .from('player_skins')
+                .insert({ player_id: currentUser.id, skin_id: skinId });
+
+            if (!error) {
+                unlockedSkins.push(skinId);
+                showNotification(`Skin Unlocked: ${SKINS[skinId].name}!`);
+            }
+        }
+
+        async function unlockAchievement(achievementId) {
+            if (!supabase || !currentUser || unlockedAchievements.includes(achievementId)) return;
+
+            const { error } = await supabase
+                .from('player_achievements')
+                .insert({ player_id: currentUser.id, achievement_id: achievementId });
+
+            if (!error) {
+                unlockedAchievements.push(achievementId);
+                const achievement = ACHIEVEMENTS[achievementId];
+                showNotification(`${achievement.icon} Achievement: ${achievement.name}!`);
+            }
+        }
+
+        async function equipSkin(skinId) {
+            if (!unlockedSkins.includes(skinId)) return;
+
+            selectedSkin = skinId;
+
+            if (supabase && currentUser) {
+                await supabase
+                    .from('profiles')
+                    .update({ equipped_skin: skinId })
+                    .eq('id', currentUser.id);
+            }
+        }
+
+        function checkAchievements(gameScore, gameBananas, gameTimeSeconds, isMultiplayer, didWin) {
+            // Track land played
+            landsPlayed.add(selectedLand);
+
+            // First game
+            if (userProfile && (userProfile.total_games || 0) >= 1) {
+                unlockAchievement('first_game');
+            }
+
+            // Banana collector (50 in one game)
+            if (gameBananas >= 50) {
+                unlockAchievement('banana_collector');
+            }
+
+            // High scorer (10000 points)
+            if (gameScore >= 10000) {
+                unlockAchievement('high_scorer');
+            }
+
+            // World traveler (all 4 lands)
+            if (landsPlayed.size >= 4) {
+                unlockAchievement('world_traveler');
+            }
+
+            // Marathon runner (60 seconds)
+            if (gameTimeSeconds >= 60) {
+                unlockAchievement('marathon_runner');
+            }
+
+            // Multiplayer achievements
+            if (isMultiplayer) {
+                unlockAchievement('multiplayer_debut');
+                if (didWin) {
+                    unlockAchievement('first_win');
+                }
+            }
+
+            // Check profile-based achievements
+            if (userProfile) {
+                if ((userProfile.total_bananas || 0) >= 500) {
+                    unlockAchievement('banana_hoarder');
+                }
+                if ((userProfile.total_games || 0) >= 100) {
+                    unlockAchievement('dedicated');
+                }
+            }
+
+            // Check skin unlocks
+            checkSkinUnlocks(gameScore);
+        }
+
+        function checkSkinUnlocks(gameScore) {
+            if (!userProfile) return;
+
+            // Golden - 100 total bananas
+            if ((userProfile.total_bananas || 0) >= 100) {
+                unlockSkin('golden');
+            }
+
+            // Speedster - 5000 points in one game
+            if (gameScore >= 5000) {
+                unlockSkin('speedster');
+            }
+
+            // Veteran - 50 games
+            if ((userProfile.total_games || 0) >= 50) {
+                unlockSkin('veteran');
+            }
+
+            // Champion - 10 multiplayer wins (would need to track this)
+        }
+
+        // Notification system
+        let notifications = [];
+
+        function showNotification(message) {
+            notifications.push({
+                message,
+                time: Date.now(),
+                opacity: 1
+            });
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notifications.shift();
+            }, 3000);
+        }
+
+        function drawNotifications() {
+            const now = Date.now();
+            notifications.forEach((notif, i) => {
+                const age = now - notif.time;
+                const opacity = Math.max(0, 1 - (age / 3000));
+
+                ctx.globalAlpha = opacity;
+                ctx.fillStyle = '#FFE135';
+                ctx.font = 'bold 20px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(notif.message, canvas.width / 2, 100 + i * 30);
+                ctx.globalAlpha = 1;
+            });
+        }
+
+        // ============================================
+        // AUTH UI FUNCTIONS
+        // ============================================
+        function showAuthModal() {
+            document.getElementById('authModal').classList.add('active');
+            document.getElementById('authError').textContent = '';
+            document.getElementById('authSuccess').style.display = 'none';
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').classList.remove('active');
+            document.getElementById('authError').textContent = '';
+            document.getElementById('authSuccess').style.display = 'none';
+        }
+
+        function toggleAuthMode() {
+            isAuthMode = isAuthMode === 'login' ? 'signup' : 'login';
+
+            const title = document.getElementById('authTitle');
+            const submit = document.getElementById('authSubmit');
+            const toggle = document.getElementById('authToggle');
+            const username = document.getElementById('authUsername');
+
+            if (isAuthMode === 'signup') {
+                title.textContent = 'Sign Up';
+                submit.textContent = 'Create Account';
+                toggle.innerHTML = 'Already have an account? <a onclick="toggleAuthMode()">Login</a>';
+                username.style.display = 'block';
+                username.required = true;
+            } else {
+                title.textContent = 'Login';
+                submit.textContent = 'Login';
+                toggle.innerHTML = 'Don\'t have an account? <a onclick="toggleAuthMode()">Sign Up</a>';
+                username.style.display = 'none';
+                username.required = false;
+            }
+
+            document.getElementById('authError').textContent = '';
+            document.getElementById('authSuccess').style.display = 'none';
+        }
+
+        function showAuthError(message) {
+            document.getElementById('authError').textContent = message;
+            document.getElementById('authSuccess').style.display = 'none';
+        }
+
+        function showAuthSuccess(message) {
+            document.getElementById('authSuccess').textContent = message;
+            document.getElementById('authSuccess').style.display = 'block';
+            document.getElementById('authError').textContent = '';
+        }
+
+        function updateUserDisplay() {
+            const userInfo = document.getElementById('userInfo');
+            const displayName = document.getElementById('displayUsername');
+
+            if (currentUser && userProfile) {
+                displayName.textContent = userProfile.username || currentUser.email;
+                userInfo.style.display = 'block';
+            } else {
+                userInfo.style.display = 'none';
+            }
+        }
+
+        // Auth form handler
+        document.getElementById('authForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            const username = document.getElementById('authUsername').value;
+
+            if (isAuthMode === 'signup') {
+                if (!username) {
+                    showAuthError('Username is required');
+                    return;
+                }
+                await signUp(email, password, username);
+            } else {
+                await signIn(email, password);
+            }
+        });
+
+        // Initialize Supabase when DOM is ready
+        document.addEventListener('DOMContentLoaded', initSupabase);
+
+        // Resize canvas to fill screen
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            ctx.imageSmoothingEnabled = false;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Dynamic constants based on screen size
+        function getGroundLevel() {
+            return canvas.height - 70;
+        }
+
+        const PLAYER_SCALE = 1.5;
+        const ENTITY_SCALE = 1.5;
+        const BANANA_HEIGHT_OFFSET = 55;
+
+        // High-definition pixel art sprites (32x48 runners, doubled detail)
         const sprites = {
-            dino: [
-                [0,0,0,1,1,1,1,1,1,0,0,0],
-                [0,0,1,1,1,1,1,1,1,1,0,0],
-                [0,1,1,1,1,1,0,1,1,1,1,0],
-                [1,1,1,1,1,1,1,1,1,1,1,1],
-                [1,1,1,1,1,1,1,1,1,1,1,1],
-                [0,1,1,1,1,1,1,0,1,1,1,0],
-                [0,0,1,1,1,1,0,0,0,1,1,0],
-                [0,0,0,1,1,0,0,0,0,0,1,0]
+            // Snow runner - winter hat with pom-pom, puffy jacket (32x48)
+            runnerSnow: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,2,2,1,1,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,2,2,2,2,1,1,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,1,1,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,2,2,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,2,8,8,8,8,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0],
+                [0,0,0,0,0,2,2,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,2,2,0,0,0,0,0],
+                [0,0,0,0,2,2,2,2,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,2,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,2,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,2,2,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,5,5,5,5,5,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0],
+                [0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0],
+                [0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0],
+                [0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0]
             ],
-            poop: [
-                [0,1,1,0],
-                [1,1,2,1],
-                [1,2,1,1],
-                [1,1,1,0]
+            // Desert runner - cowboy hat, vest (32x48)
+            runnerDesert: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0],
+                [0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,2,2,8,8,8,8,2,2,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,5,5,5,6,6,6,6,6,6,6,6,5,5,5,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,5,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,5,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,5,5,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,5,5,0,0,0,0,0,0],
+                [0,0,0,0,0,2,2,5,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,5,2,2,0,0,0,0,0],
+                [0,0,0,0,2,2,2,2,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,2,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,2,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,0,0,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,2,2,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,0,0,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,7,7,7,0,0,0,0,7,7,7,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,7,7,7,0,0,0,0,0,0,7,7,7,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,7,7,7,0,0,0,0,0,0,0,0,7,7,7,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0,0,0,0,7,7,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0],
+                [0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0],
+                [0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0],
+                [0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0,0,0,9,9,9,9,9,9,0,0,0,0,0,0]
             ],
+            // Jungle runner - Tarzan loincloth, bare chest (32x48)
+            runnerJungle: [
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,2,2,1,1,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,2,2,2,2,1,1,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,2,2,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,3,3,2,2,2,2,2,2,3,3,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0],
+                [0,0,0,0,2,2,2,2,0,0,2,2,2,2,2,2,2,2,2,2,2,2,0,0,2,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,2,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,2,2,2,0,0,0,0],
+                [0,0,0,0,2,2,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,2,2,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,0,0,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0]
+            ],
+            // Ocean runner - scuba helmet, wetsuit (32x48)
+            runnerOcean: [
+                [0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,5,5,5,5,4,4,4,4,5,5,5,5,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,5,5,5,5,4,4,4,4,5,5,5,5,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,5,5,3,3,4,4,4,4,3,3,5,5,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,5,5,3,3,4,4,4,4,3,3,5,5,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0],
+                [0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0],
+                [0,0,0,0,6,6,6,6,0,0,6,6,6,6,6,6,6,6,6,6,6,6,0,0,6,6,6,6,0,0,0,0],
+                [0,0,0,0,6,6,6,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,6,6,6,0,0,0,0],
+                [0,0,0,0,6,6,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,6,6,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,0,0,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,0,0,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,0,0,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,6,6,6,6,6,0,0,0,0,6,6,6,6,6,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,6,6,6,6,6,0,0,0,0,0,0,6,6,6,6,6,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,6,6,6,6,6,0,0,0,0,0,0,0,0,6,6,6,6,6,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0],
+                [0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0],
+                [0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0],
+                [0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0],
+                [0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0,0,7,7,7,7,7,7,7,7,0,0,0,0,0]
+            ],
+            // Curved banana (20x36 pixels) - doubled detail
             banana: [
-                [0,1,1,0],
-                [1,1,1,1],
-                [0,1,1,0],
-                [0,1,0,0]
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,2,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,1,1,1,1,1,2,2,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,2,2,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0],
+                [0,1,1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0],
+                [0,1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0],
+                [1,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0],
+                [0,1,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0],
+                [0,1,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,1,1,2,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ],
+            // Snowman (20x36 pixels)
+            snowman: [
+                [0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,5,5,5,5,5,5,5,5,0,0,0,0,0,0],
+                [0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0],
+                [0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0],
+                [0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,1,1,2,2,1,1,2,2,1,1,0,0,0,0,0],
+                [0,0,0,0,1,1,1,2,2,1,1,2,2,1,1,1,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,0,1,1,1,1,3,1,1,3,1,1,1,1,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,3,3,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,4,4,4,4,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,1,1,1,1,2,1,1,1,1,2,1,1,1,1,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,0,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,1,1,2,2,1,1,1,1,1,1,1,1,0],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0]
+            ],
+            // Cactus (20x36 pixels) - doubled detail
+            cactus: [
+                [0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,2,2,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,2,2,2,2,1,0,0,0,0,0,0,0],
+                [0,0,1,1,0,0,0,1,2,2,2,2,1,0,0,0,1,1,0,0],
+                [0,1,1,2,1,0,0,1,2,2,2,2,1,0,0,1,2,1,1,0],
+                [0,1,2,2,1,0,1,1,2,2,2,2,1,1,0,1,2,2,1,0],
+                [1,1,2,2,1,1,1,1,2,2,2,2,1,1,1,1,2,2,1,1],
+                [1,2,2,2,2,1,1,1,2,2,2,2,1,1,1,2,2,2,2,1],
+                [1,2,2,2,2,1,1,1,2,2,2,2,1,1,1,2,2,2,2,1],
+                [1,2,2,2,2,1,1,1,2,2,2,2,1,1,1,2,2,2,2,1],
+                [1,2,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,2,1],
+                [0,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,0],
+                [0,0,1,2,2,2,1,1,2,2,2,2,1,1,2,2,2,1,0,0],
+                [0,0,0,1,1,1,1,1,2,2,2,2,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,2,2,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0]
+            ],
+            // Jungle palm tree (24x40 pixels)
+            jungleTree: [
+                [0,0,0,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,1,1,1,1,2,2,1,1,1,0,1,1,1,2,2,1,1,1,1,0,0],
+                [0,0,1,1,1,2,2,2,2,2,1,1,0,1,1,2,2,2,2,2,1,1,1,0],
+                [0,1,1,1,2,2,2,2,2,2,1,0,0,0,1,2,2,2,2,2,2,1,1,1],
+                [1,1,1,2,2,2,2,2,2,1,1,0,0,0,1,1,2,2,2,2,2,2,1,1],
+                [1,1,2,2,2,2,2,2,1,1,0,0,0,0,0,1,1,2,2,2,2,2,2,1],
+                [0,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,1,1,2,2,2,2,1,0],
+                [0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,3,3,4,4,3,3,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,3,3,3,4,4,3,3,3,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,3,3,3,4,4,3,3,3,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,3,3,3,3,4,4,3,3,3,3,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,3,3,3,3,4,4,3,3,3,3,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,3,3,3,3,3,4,4,3,3,3,3,3,0,0,0,0,0,0],
+                [0,0,0,0,0,0,3,3,3,3,3,4,4,3,3,3,3,3,0,0,0,0,0,0],
+                [0,0,0,0,0,3,3,3,3,3,3,4,4,3,3,3,3,3,3,0,0,0,0,0],
+                [0,0,0,0,0,3,3,3,3,3,3,4,4,3,3,3,3,3,3,0,0,0,0,0],
+                [0,0,0,0,0,3,3,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0]
+            ],
+            // Kraken tentacle - tight spiral tip with S-curve body (22x44 pixels)
+            tentacle: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,1,1,2,2,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,1,2,2,1,0,0,0],
+                [0,0,0,0,0,0,0,1,1,2,2,1,0,0,0,1,1,2,1,1,0,0],
+                [0,0,0,0,0,0,1,1,2,2,1,0,0,0,0,0,1,1,2,1,0,0],
+                [0,0,0,0,0,1,1,2,2,1,1,0,0,0,0,0,0,1,1,1,0,0],
+                [0,0,0,0,1,1,2,3,4,3,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,2,2,3,4,3,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,2,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0,0,0],
+                [0,1,1,2,2,2,3,4,3,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [1,1,2,2,2,2,3,4,3,2,2,2,1,0,0,0,0,0,0,0,0,0],
+                [1,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [1,2,2,2,3,4,3,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0],
+                [1,1,2,2,3,4,3,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,1,1,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,3,4,3,2,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,1,3,4,3,2,2,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,1,1,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,1,1,2,2,2,2,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,2,2,2,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,2,2,2,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,2,2,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,2,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,2,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,1,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2,1,1],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,1,1],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0]
             ]
         };
 
         // Colors for each sprite
         const colors = {
-            dino: {1: '#444444'},
-            poop: {1: '#888888', 2: '#666666'},
-            banana: {1: '#FF9900'}
+            // Snow outfit - winter gear
+            runnerSnow: {
+                1: '#8B5A2B',  // Hair
+                2: '#DEB887',  // Skin
+                3: '#000000',  // Eyes
+                4: '#E53935',  // Red winter jacket/hat
+                5: '#1A237E',  // Navy pants
+                6: '#5D4037',  // Brown snow boots
+                7: '#FFFFFF',  // Pom-pom
+                8: '#CD5C5C'   // Mouth/smile
+            },
+            // Desert outfit - cowboy
+            runnerDesert: {
+                1: '#8B5A2B',  // Hair
+                2: '#DEB887',  // Skin
+                3: '#000000',  // Eyes
+                4: '#8D6E63',  // Brown cowboy hat
+                5: '#F5DEB3',  // Tan shirt
+                6: '#5D4037',  // Brown vest
+                7: '#1565C0',  // Blue jeans
+                8: '#CD5C5C',  // Mouth/smile
+                9: '#4E342E'   // Cowboy boots
+            },
+            // Jungle outfit - Tarzan
+            runnerJungle: {
+                1: '#5D4037',  // Dark hair
+                2: '#C8A27A',  // Tanned skin
+                3: '#000000',  // Eyes
+                4: '#6D4C41'   // Brown loincloth
+            },
+            // Ocean outfit - scuba
+            runnerOcean: {
+                1: '#8B5A2B',  // Hair (hidden)
+                2: '#DEB887',  // Skin (hidden)
+                3: '#000000',  // Eyes
+                4: '#FFB300',  // Yellow helmet
+                5: '#81D4FA',  // Light blue visor
+                6: '#212121',  // Black wetsuit
+                7: '#000000'   // Black flippers
+            },
+            banana: {
+                1: '#FFE135',  // Bright yellow
+                2: '#FFC107',  // Darker yellow edge
+                3: '#4E3524',  // Brown stem
+                4: '#3E2723'   // Dark brown tip
+            },
+            snowman: {
+                1: '#FFFFFF',  // White snow body
+                2: '#212121',  // Black eyes/buttons
+                3: '#FF5722',  // Orange carrot nose
+                4: '#E53935',  // Red scarf
+                5: '#212121'   // Black top hat
+            },
+            cactus: {
+                1: '#2E7D32',  // Dark green
+                2: '#4CAF50'   // Light green
+            },
+            jungleTree: {
+                1: '#2E7D32',  // Dark green leaves
+                2: '#4CAF50',  // Light green leaves
+                3: '#5D4037',  // Brown trunk
+                4: '#8D6E63'   // Light brown trunk detail
+            },
+            tentacle: {
+                1: '#B71C1C',  // Dark red outer edge
+                2: '#E57373',  // Pink tentacle body
+                3: '#FFCDD2',  // Light pink suction cup ring
+                4: '#C62828'   // Dark red suction cup center
+            }
         };
+
+        // Land configurations
+        const lands = {
+            snow: {
+                name: 'Snow',
+                skyTop: '#B3E5FC',
+                skyBottom: '#E1F5FE',
+                ground: '#ECEFF1',
+                groundAccent: '#FFFFFF',
+                obstacle: sprites.snowman,
+                obstacleColors: colors.snowman,
+                runner: sprites.runnerSnow,
+                runnerColors: colors.runnerSnow
+            },
+            desert: {
+                name: 'Desert',
+                skyTop: '#FFE082',
+                skyBottom: '#FFF8E1',
+                ground: '#E6C47A',
+                groundAccent: '#F5DEB3',
+                obstacle: sprites.cactus,
+                obstacleColors: colors.cactus,
+                runner: sprites.runnerDesert,
+                runnerColors: colors.runnerDesert
+            },
+            jungle: {
+                name: 'Jungle',
+                skyTop: '#81C784',
+                skyBottom: '#C8E6C9',
+                ground: '#6D4C41',
+                groundAccent: '#4CAF50',
+                obstacle: sprites.jungleTree,
+                obstacleColors: colors.jungleTree,
+                runner: sprites.runnerJungle,
+                runnerColors: colors.runnerJungle
+            },
+            ocean: {
+                name: 'Ocean',
+                skyTop: '#4FC3F7',
+                skyBottom: '#B3E5FC',
+                ground: '#1565C0',
+                groundAccent: '#42A5F5',
+                obstacle: sprites.tentacle,
+                obstacleColors: colors.tentacle,
+                runner: sprites.runnerOcean,
+                runnerColors: colors.runnerOcean
+            }
+        };
+
+        let selectedLand = 'snow';
+
+        // Calculate dimensions from sprites
+        const PLAYER_WIDTH = sprites.runnerSnow[0].length * PLAYER_SCALE;
+        const PLAYER_HEIGHT = sprites.runnerSnow.length * PLAYER_SCALE;
 
         // Draw sprite function
         function drawSprite(ctx, x, y, pixels, scale, colorMap) {
@@ -94,8 +1399,9 @@
             }
         }
 
-        // Game state
-        let gameRunning = true;
+        // Game state: 'menu', 'playing', 'gameover', 'leaderboard'
+        let gameState = 'menu';
+        let gameMode = 'solo'; // 'solo' or 'multiplayer'
         let score = 0;
         let bananasCollected = 0;
         let gameTime = 0;
@@ -103,58 +1409,240 @@
         let spawnCounter = 0;
         let scrollOffset = 0;
         let entities = [];
+        let scoreSaved = false; // Track if score was saved for current game
+
+        // Leaderboard data
+        let leaderboardData = [];
+        let loadingLeaderboard = false;
+
+        // Multiplayer lobby state
+        let currentLobby = null;
+        let lobbyPlayers = [];
+        let lobbySubscription = null;
+        let isLobbyHost = false;
+        let opponentScore = 0;
+        let opponentBananas = 0;
+        let gameResult = null; // 'win', 'lose', 'tie'
+
+        // Skins system
+        const SKINS = {
+            default: { name: 'Default', description: 'The classic runner', unlocked: true },
+            golden: { name: 'Golden Runner', description: 'Collect 100 total bananas', unlockReq: { type: 'bananas', value: 100 } },
+            speedster: { name: 'Speedster', description: 'Score 5000 points in one game', unlockReq: { type: 'score', value: 5000 } },
+            veteran: { name: 'Veteran', description: 'Play 50 games', unlockReq: { type: 'games', value: 50 } },
+            champion: { name: 'Champion', description: 'Win 10 multiplayer games', unlockReq: { type: 'mp_wins', value: 10 } }
+        };
+
+        // Achievements system
+        const ACHIEVEMENTS = {
+            first_game: { name: 'First Steps', description: 'Play your first game', icon: '🎮' },
+            banana_collector: { name: 'Banana Collector', description: 'Collect 50 bananas in one game', icon: '🍌' },
+            high_scorer: { name: 'High Scorer', description: 'Score 10000 points', icon: '🏆' },
+            world_traveler: { name: 'World Traveler', description: 'Play on all 4 lands', icon: '🌍' },
+            marathon_runner: { name: 'Marathon Runner', description: 'Survive for 60 seconds', icon: '🏃' },
+            multiplayer_debut: { name: 'Social Butterfly', description: 'Play your first multiplayer game', icon: '👥' },
+            first_win: { name: 'Victory!', description: 'Win your first multiplayer game', icon: '🥇' },
+            banana_hoarder: { name: 'Banana Hoarder', description: 'Collect 500 total bananas', icon: '🍌' },
+            dedicated: { name: 'Dedicated', description: 'Play 100 games', icon: '⭐' }
+        };
+
+        let unlockedSkins = ['default'];
+        let unlockedAchievements = [];
+        let selectedSkin = 'default';
+        let landsPlayed = new Set();
+
+        // Jump buffering - stores timestamp of last jump attempt
+        const JUMP_BUFFER_MS = 150; // Window to buffer jump input before landing
+        let jumpBufferTime = 0;
+
+        // Land selection buttons (will be calculated in draw)
+        let landButtons = [];
+        // Menu action buttons (Solo, Multiplayer, Leaderboard, Login)
+        let menuButtons = [];
 
         // Player
         const player = {
             x: 100,
-            y: GROUND_LEVEL - PLAYER_HEIGHT,
+            y: getGroundLevel() - PLAYER_HEIGHT,
             vy: 0,
             jumping: false,
-            groundY: GROUND_LEVEL - PLAYER_HEIGHT,
-            pixels: sprites.dino,
-            scale: PLAYER_SCALE,
-            colors: colors.dino
+            get groundY() { return getGroundLevel() - PLAYER_HEIGHT; },
+            scale: PLAYER_SCALE
         };
 
+        // Check if a point is inside a button
+        function pointInButton(x, y, btn) {
+            return x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h;
+        }
+
+        // Handle click/tap for land selection and menu buttons
+        function handleClick(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (clientX - rect.left) * (canvas.width / rect.width);
+            const y = (clientY - rect.top) * (canvas.height / rect.height);
+
+            // Check menu action buttons first
+            for (const btn of menuButtons) {
+                if (pointInButton(x, y, btn)) {
+                    handleMenuAction(btn.action);
+                    return true;
+                }
+            }
+
+            // Check land buttons
+            for (const btn of landButtons) {
+                if (pointInButton(x, y, btn)) {
+                    selectedLand = btn.land;
+                    if (gameState === 'gameover') {
+                        startGame();
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Handle menu button actions
+        function handleMenuAction(action) {
+            switch (action) {
+                case 'solo':
+                    gameMode = 'solo';
+                    startGame();
+                    break;
+                case 'multiplayer':
+                    if (!currentUser) {
+                        showAuthModal();
+                    } else {
+                        findOrCreateLobby();
+                    }
+                    break;
+                case 'leaderboard':
+                    showLeaderboard();
+                    break;
+                case 'login':
+                    showAuthModal();
+                    break;
+                case 'back':
+                    gameState = 'menu';
+                    break;
+                case 'ready':
+                    toggleReady();
+                    break;
+                case 'leave_lobby':
+                    leaveLobby();
+                    break;
+            }
+        }
+
+        // Show leaderboard
+        async function showLeaderboard() {
+            gameState = 'leaderboard';
+            loadingLeaderboard = true;
+            leaderboardData = await getLeaderboard(null, 10);
+            loadingLeaderboard = false;
+        }
+
         // Input handling
+        function jump() {
+            if (gameState === 'playing') {
+                if (!player.jumping) {
+                    // On ground - jump immediately
+                    player.vy = -18;
+                    player.jumping = true;
+                    jumpBufferTime = 0;
+                } else {
+                    // In air - buffer the jump request
+                    jumpBufferTime = Date.now();
+                }
+            }
+        }
+
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
-                if (gameRunning) {
-                    if (!player.jumping) {
-                        player.vy = -18;
-                        player.jumping = true;
-                    }
-                } else {
-                    restart();
+                if (gameState === 'playing') {
+                    jump();
+                } else if (gameState === 'gameover') {
+                    startGame();
+                } else if (gameState === 'leaderboard') {
+                    gameState = 'menu';
                 }
+            }
+            if (e.code === 'Escape') {
+                if (gameState === 'leaderboard') {
+                    gameState = 'menu';
+                }
+            }
+        });
+
+        // Touch support for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            if (gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+                handleClick(touch.clientX, touch.clientY);
+            } else {
+                jump();
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            if (gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+                if (!handleClick(e.clientX, e.clientY)) {
+                    if (gameState === 'gameover') {
+                        startGame();
+                    }
+                }
+            } else {
+                jump();
             }
         });
 
         // Spawn entity
         function spawn() {
+            const land = lands[selectedLand];
             const isBanana = Math.random() < 0.35;
-            const type = isBanana ? 'banana' : 'poop';
-            const pixels = sprites[type];
-            const entColors = colors[type];
-            const scale = ENTITY_SCALE;
-            const h = pixels.length * scale;
-            const y = isBanana ? GROUND_LEVEL - h - BANANA_HEIGHT_OFFSET : GROUND_LEVEL - h;
 
-            entities.push({
-                x: canvas.width + 20,
-                y: y,
-                pixels: pixels,
-                scale: scale,
-                colors: entColors,
-                type: type,
-                vx: 0 // Will be updated in loop
-            });
+            if (isBanana) {
+                // Spawn single banana
+                const pixels = sprites.banana;
+                const scale = ENTITY_SCALE;
+                const h = pixels.length * scale;
+                entities.push({
+                    x: canvas.width + 20,
+                    y: getGroundLevel() - h - BANANA_HEIGHT_OFFSET,
+                    pixels: pixels,
+                    scale: scale,
+                    colors: colors.banana,
+                    type: 'banana',
+                    vx: 0
+                });
+            } else {
+                // Spawn 1, 2, or 3 obstacles in a row
+                const obstacleCount = Math.floor(Math.random() * 3) + 1;
+                const pixels = land.obstacle;
+                const scale = ENTITY_SCALE;
+                const w = pixels[0].length * scale;
+                const h = pixels.length * scale;
+                const gap = 4; // Small gap between obstacles
+
+                for (let i = 0; i < obstacleCount; i++) {
+                    entities.push({
+                        x: canvas.width + 20 + (i * (w + gap)),
+                        y: getGroundLevel() - h,
+                        pixels: pixels,
+                        scale: scale,
+                        colors: land.obstacleColors,
+                        type: 'obstacle',
+                        vx: 0
+                    });
+                }
+            }
         }
 
-        // Restart game
-        function restart() {
-            gameRunning = true;
+        // Start/restart game
+        function startGame() {
+            gameState = 'playing';
             score = 0;
             bananasCollected = 0;
             gameTime = 0;
@@ -165,11 +1653,13 @@
             player.y = player.groundY;
             player.vy = 0;
             player.jumping = false;
+            jumpBufferTime = 0;
+            scoreSaved = false;
         }
 
         // Update game logic
         function update() {
-            if (!gameRunning) return;
+            if (gameState !== 'playing') return;
 
             gameTime++;
             speed += 0.002; // Gradually increase speed
@@ -189,6 +1679,13 @@
                     player.y = player.groundY;
                     player.jumping = false;
                     player.vy = 0;
+
+                    // Check for buffered jump - if player pressed jump recently, jump again
+                    if (jumpBufferTime > 0 && (Date.now() - jumpBufferTime) < JUMP_BUFFER_MS) {
+                        player.vy = -18;
+                        player.jumping = true;
+                        jumpBufferTime = 0;
+                    }
                 }
             }
 
@@ -215,8 +1712,35 @@
                     player.y < eBottom &&
                     pBottom > ent.y) {
 
-                    if (ent.type === 'poop') {
-                        gameRunning = false;
+                    if (ent.type === 'obstacle') {
+                        gameState = 'gameover';
+
+                        // Broadcast final score in multiplayer
+                        const isMultiplayer = gameMode === 'multiplayer';
+                        let didWin = false;
+
+                        if (isMultiplayer) {
+                            broadcastGameState(true);
+                            // Determine result
+                            if (score > opponentScore) {
+                                gameResult = 'win';
+                                didWin = true;
+                            } else if (score < opponentScore) {
+                                gameResult = 'lose';
+                            } else {
+                                gameResult = 'tie';
+                            }
+                        }
+
+                        // Save score if logged in and not already saved
+                        if (!scoreSaved && currentUser) {
+                            scoreSaved = true;
+                            saveScore(score, bananasCollected, selectedLand);
+
+                            // Check achievements (game time in seconds = gameTime / 60 fps)
+                            const gameTimeSeconds = Math.floor(gameTime / 60);
+                            checkAchievements(score, bananasCollected, gameTimeSeconds, isMultiplayer, didWin);
+                        }
                     } else {
                         bananasCollected++;
                         entities.splice(i, 1);
@@ -228,71 +1752,375 @@
             score = Math.floor(gameTime / 6) + (bananasCollected * 150);
 
             scrollOffset = (scrollOffset + speed) % 40;
+
+            // Broadcast game state in multiplayer (every 30 frames)
+            if (gameMode === 'multiplayer' && gameTime % 30 === 0) {
+                broadcastGameState(false);
+            }
+        }
+
+        // Draw menu action buttons
+        function drawMenuButtons(buttons, startY) {
+            const btnWidth = 200;
+            const btnHeight = 50;
+            const gap = 15;
+
+            menuButtons = [];
+
+            buttons.forEach((btn, i) => {
+                const x = (canvas.width - btnWidth) / 2;
+                const y = startY + i * (btnHeight + gap);
+
+                menuButtons.push({ x, y, w: btnWidth, h: btnHeight, action: btn.action });
+
+                // Draw button background
+                ctx.fillStyle = btn.primary ? '#FFE135' : '#333';
+                ctx.fillRect(x, y, btnWidth, btnHeight);
+
+                // Draw border
+                ctx.strokeStyle = btn.primary ? '#FFC107' : '#555';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, btnWidth, btnHeight);
+
+                // Draw text
+                ctx.fillStyle = btn.primary ? '#000' : '#FFF';
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(btn.label, x + btnWidth / 2, y + btnHeight / 2 + 6);
+            });
+        }
+
+        // Draw land selection buttons
+        function drawLandButtons(startY, showChangeText) {
+            const landKeys = Object.keys(lands);
+            const btnWidth = 120;
+            const btnHeight = 50;
+            const gap = 20;
+            const totalWidth = landKeys.length * btnWidth + (landKeys.length - 1) * gap;
+            const startX = (canvas.width - totalWidth) / 2;
+
+            landButtons = [];
+
+            landKeys.forEach((key, i) => {
+                const land = lands[key];
+                const x = startX + i * (btnWidth + gap);
+                const y = startY;
+                const isSelected = key === selectedLand;
+
+                // Store button for click detection
+                landButtons.push({ x, y, w: btnWidth, h: btnHeight, land: key });
+
+                // Draw button background
+                ctx.fillStyle = isSelected ? land.ground : '#444';
+                ctx.fillRect(x, y, btnWidth, btnHeight);
+
+                // Draw border
+                ctx.strokeStyle = isSelected ? '#FFF' : '#888';
+                ctx.lineWidth = isSelected ? 4 : 2;
+                ctx.strokeRect(x, y, btnWidth, btnHeight);
+
+                // Draw text
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 16px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(land.name, x + btnWidth / 2, y + btnHeight / 2 + 6);
+            });
+
+            if (showChangeText) {
+                ctx.fillStyle = '#AAA';
+                ctx.font = '14px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('Tap a land to change, or tap anywhere to play', canvas.width / 2, startY + btnHeight + 25);
+            }
         }
 
         // Draw everything
         function draw() {
+            const land = lands[selectedLand];
+            const groundY = getGroundLevel();
+
             // Clear canvas
             ctx.fillStyle = '#FAFAFA';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw sky gradient (simple)
-            const grad = ctx.createLinearGradient(0, 0, 0, GROUND_LEVEL);
-            grad.addColorStop(0, '#87CEEB');
-            grad.addColorStop(1, '#E0F6FF');
+            // Draw sky gradient with land colors
+            const grad = ctx.createLinearGradient(0, 0, 0, groundY);
+            grad.addColorStop(0, land.skyTop);
+            grad.addColorStop(1, land.skyBottom);
             ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, canvas.width, GROUND_LEVEL);
+            ctx.fillRect(0, 0, canvas.width, groundY);
 
-            // Draw scrolling ground
-            ctx.fillStyle = '#D8C896';
-            ctx.fillRect(0, GROUND_LEVEL, canvas.width, canvas.height - GROUND_LEVEL);
+            // Draw scrolling ground with land colors
+            ctx.fillStyle = land.ground;
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
 
             // Draw ground bumps/dots (scrolling)
-            ctx.fillStyle = '#EAE6C6';
+            ctx.fillStyle = land.groundAccent;
             let bumpX = (-scrollOffset) % 40;
             for (let i = 0; i < canvas.width / 20 + 3; i++) {
                 const x = bumpX + (i * 40);
-                ctx.fillRect(x, GROUND_LEVEL - 4, 20, 8);
-                ctx.fillRect(x + 22, GROUND_LEVEL, 8, 8);
+                ctx.fillRect(x, groundY - 4, 20, 8);
+                ctx.fillRect(x + 22, groundY, 8, 8);
             }
 
-            // Draw player
-            drawSprite(ctx, player.x, player.y, player.pixels, player.scale, player.colors);
-
-            // Draw entities
-            entities.forEach(ent => {
-                drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
-            });
-
-            // Draw scores
-            ctx.fillStyle = '#000';
-            ctx.font = 'bold 28px monospace';
-            ctx.textAlign = 'left';
-            ctx.fillText(`Score: ${score}`, 20, 35);
-            ctx.fillText(`Bananas: ${bananasCollected}`, 20, 70);
-
-            // Game Over screen
-            if (!gameRunning) {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            if (gameState === 'menu') {
+                // Menu screen
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 ctx.fillStyle = '#FFFFFF';
                 ctx.textAlign = 'center';
-                ctx.font = 'bold 48px monospace';
-                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 20);
+                ctx.font = 'bold 56px monospace';
+                ctx.fillText('BANANA RUNNER', canvas.width / 2, 100);
 
-                ctx.font = 'bold 32px monospace';
-                ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
+                // Draw banana sprite as logo
+                drawSprite(ctx, canvas.width / 2 - 30, 120, sprites.banana, 2, colors.banana);
 
+                // User stats if logged in
+                if (currentUser && userProfile) {
+                    ctx.font = '18px monospace';
+                    ctx.fillStyle = '#FFE135';
+                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, canvas.width / 2, 220);
+                    ctx.fillStyle = '#AAA';
+                    ctx.fillText(`Total Bananas: ${userProfile.total_bananas || 0}`, canvas.width / 2, 245);
+                }
+
+                // Land selection
+                ctx.fillStyle = '#FFF';
+                ctx.font = '20px monospace';
+                ctx.fillText('Select Land:', canvas.width / 2, 290);
+                drawLandButtons(310, false);
+
+                // Menu buttons
+                const menuBtns = [
+                    { label: 'SOLO PLAY', action: 'solo', primary: true },
+                    { label: 'MULTIPLAYER', action: 'multiplayer', primary: false },
+                    { label: 'LEADERBOARD', action: 'leaderboard', primary: false }
+                ];
+
+                if (!currentUser) {
+                    menuBtns.push({ label: 'LOGIN / SIGN UP', action: 'login', primary: false });
+                }
+
+                drawMenuButtons(menuBtns, 400);
+
+                // Instructions
+                ctx.font = '16px monospace';
+                ctx.fillStyle = '#666';
+                ctx.fillText('Press SPACE or tap to jump!', canvas.width / 2, canvas.height - 40);
+
+            } else if (gameState === 'leaderboard') {
+                // Leaderboard screen
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#FFE135';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 42px monospace';
+                ctx.fillText('LEADERBOARD', canvas.width / 2, 80);
+
+                if (loadingLeaderboard) {
+                    ctx.fillStyle = '#AAA';
+                    ctx.font = '24px monospace';
+                    ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2);
+                } else if (leaderboardData.length === 0) {
+                    ctx.fillStyle = '#AAA';
+                    ctx.font = '20px monospace';
+                    ctx.fillText('No scores yet!', canvas.width / 2, canvas.height / 2 - 20);
+                    ctx.fillText('Be the first to play!', canvas.width / 2, canvas.height / 2 + 10);
+                } else {
+                    // Draw leaderboard entries
+                    const startY = 140;
+                    const rowHeight = 40;
+
+                    // Header
+                    ctx.fillStyle = '#888';
+                    ctx.font = 'bold 16px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('RANK', canvas.width / 2 - 180, startY);
+                    ctx.fillText('PLAYER', canvas.width / 2 - 100, startY);
+                    ctx.textAlign = 'right';
+                    ctx.fillText('SCORE', canvas.width / 2 + 180, startY);
+
+                    leaderboardData.forEach((entry, i) => {
+                        const y = startY + (i + 1) * rowHeight;
+                        const isCurrentUser = currentUser && entry.player_id === currentUser.id;
+
+                        ctx.fillStyle = isCurrentUser ? '#FFE135' : '#FFF';
+                        ctx.font = isCurrentUser ? 'bold 18px monospace' : '18px monospace';
+
+                        ctx.textAlign = 'left';
+                        ctx.fillText(`#${i + 1}`, canvas.width / 2 - 180, y);
+                        ctx.fillText(entry.username || 'Anonymous', canvas.width / 2 - 100, y);
+                        ctx.textAlign = 'right';
+                        ctx.fillText(entry.high_score?.toString() || '0', canvas.width / 2 + 180, y);
+                    });
+                }
+
+                // Back button
+                drawMenuButtons([{ label: 'BACK TO MENU', action: 'back', primary: true }], canvas.height - 120);
+
+            } else if (gameState === 'lobby') {
+                // Lobby screen
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#FFE135';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 42px monospace';
+                ctx.fillText('MULTIPLAYER LOBBY', canvas.width / 2, 80);
+
+                if (currentLobby) {
+                    // Show lobby code
+                    ctx.fillStyle = '#AAA';
+                    ctx.font = '18px monospace';
+                    ctx.fillText('Lobby Code:', canvas.width / 2, 130);
+                    ctx.fillStyle = '#FFE135';
+                    ctx.font = 'bold 32px monospace';
+                    ctx.fillText(currentLobby.code, canvas.width / 2, 170);
+
+                    // Show land
+                    ctx.fillStyle = '#888';
+                    ctx.font = '16px monospace';
+                    ctx.fillText(`Land: ${lands[selectedLand].name}`, canvas.width / 2, 210);
+
+                    // Show players
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = 'bold 24px monospace';
+                    ctx.fillText('Players:', canvas.width / 2, 270);
+
+                    const playerStartY = 310;
+                    lobbyPlayers.forEach((player, i) => {
+                        const y = playerStartY + i * 50;
+                        const isMe = currentUser && player.player_id === currentUser.id;
+                        const username = player.profiles?.username || 'Player';
+
+                        ctx.fillStyle = isMe ? '#FFE135' : '#FFF';
+                        ctx.font = isMe ? 'bold 20px monospace' : '20px monospace';
+                        ctx.fillText(username + (isMe ? ' (You)' : ''), canvas.width / 2 - 60, y);
+
+                        // Ready status
+                        ctx.fillStyle = player.is_ready ? '#4CAF50' : '#888';
+                        ctx.fillText(player.is_ready ? 'READY' : 'NOT READY', canvas.width / 2 + 100, y);
+                    });
+
+                    // Waiting for players message
+                    if (lobbyPlayers.length < 2) {
+                        ctx.fillStyle = '#888';
+                        ctx.font = '18px monospace';
+                        ctx.fillText('Waiting for opponent...', canvas.width / 2, playerStartY + 100);
+                    }
+
+                    // Ready button and leave button
+                    const currentPlayer = lobbyPlayers.find(p => currentUser && p.player_id === currentUser.id);
+                    const isReady = currentPlayer?.is_ready || false;
+
+                    drawMenuButtons([
+                        { label: isReady ? 'NOT READY' : 'READY UP!', action: 'ready', primary: !isReady },
+                        { label: 'LEAVE LOBBY', action: 'leave_lobby', primary: false }
+                    ], canvas.height - 180);
+
+                    // Instructions
+                    if (lobbyPlayers.length === 2) {
+                        ctx.fillStyle = '#4CAF50';
+                        ctx.font = '16px monospace';
+                        ctx.fillText('Both players ready = Game starts!', canvas.width / 2, canvas.height - 40);
+                    }
+                } else {
+                    ctx.fillStyle = '#AAA';
+                    ctx.font = '20px monospace';
+                    ctx.fillText('Creating lobby...', canvas.width / 2, canvas.height / 2);
+                }
+
+            } else if (gameState === 'playing') {
+                // Draw player with land-specific outfit
+                drawSprite(ctx, player.x, player.y, land.runner, player.scale, land.runnerColors);
+
+                // Draw entities
+                entities.forEach(ent => {
+                    drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
+                });
+
+                // Draw scores
+                ctx.fillStyle = '#000';
                 ctx.font = 'bold 28px monospace';
-                ctx.fillText(`Bananas: ${bananasCollected}`, canvas.width / 2, canvas.height / 2 + 80);
+                ctx.textAlign = 'left';
+                ctx.fillText(`Score: ${score}`, 20, 35);
+                ctx.fillText(`Bananas: ${bananasCollected}`, 20, 70);
 
-                ctx.font = '24px monospace';
-                ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 130);
-                ctx.textAlign = 'left';
-            } else {
-                ctx.textAlign = 'left';
+                // Show current land
+                ctx.fillStyle = '#666';
+                ctx.font = '18px monospace';
+                ctx.textAlign = 'right';
+                ctx.fillText(land.name, canvas.width - 20, 35);
+
+                // Show opponent score in multiplayer
+                if (gameMode === 'multiplayer') {
+                    ctx.fillStyle = '#E53935';
+                    ctx.font = 'bold 22px monospace';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`Opponent: ${opponentScore}`, canvas.width - 20, 70);
+                }
+
+            } else if (gameState === 'gameover') {
+                // Draw player and entities frozen
+                drawSprite(ctx, player.x, player.y, land.runner, player.scale, land.runnerColors);
+                entities.forEach(ent => {
+                    drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
+                });
+
+                // Dark overlay
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.textAlign = 'center';
+
+                // Show multiplayer result
+                if (gameMode === 'multiplayer' && gameResult) {
+                    const resultColors = { win: '#4CAF50', lose: '#E53935', tie: '#FFE135' };
+                    const resultText = { win: 'YOU WIN!', lose: 'YOU LOSE!', tie: 'TIE GAME!' };
+
+                    ctx.fillStyle = resultColors[gameResult];
+                    ctx.font = 'bold 56px monospace';
+                    ctx.fillText(resultText[gameResult], canvas.width / 2, canvas.height / 2 - 120);
+
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = 'bold 28px monospace';
+                    ctx.fillText(`Your Score: ${score}`, canvas.width / 2, canvas.height / 2 - 60);
+
+                    ctx.fillStyle = '#E53935';
+                    ctx.fillText(`Opponent: ${opponentScore}`, canvas.width / 2, canvas.height / 2 - 25);
+                } else {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 48px monospace';
+                    ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 100);
+
+                    ctx.font = 'bold 32px monospace';
+                    ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 - 50);
+                }
+
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 24px monospace';
+                ctx.fillText(`Bananas: ${bananasCollected}`, canvas.width / 2, canvas.height / 2 + 10);
+
+                // Show high score notification
+                if (currentUser && userProfile && score > (userProfile.high_score || 0)) {
+                    ctx.fillStyle = '#FFE135';
+                    ctx.font = 'bold 20px monospace';
+                    ctx.fillText('NEW HIGH SCORE!', canvas.width / 2, canvas.height / 2 + 45);
+                }
+
+                ctx.font = '18px monospace';
+                ctx.fillStyle = '#AAA';
+                ctx.fillText('Select land and tap to play again:', canvas.width / 2, canvas.height / 2 + 80);
+
+                drawLandButtons(canvas.height / 2 + 100, false);
             }
+
+            // Draw notifications on top of everything
+            drawNotifications();
+
+            ctx.textAlign = 'left';
         }
 
         // Game loop
