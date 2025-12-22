@@ -187,14 +187,14 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3b2xnYXRucGhjY3F2dW5paGF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0Mjc2NTksImV4cCI6MjA4MjAwMzY1OX0.IyhyEfc1OWnXYJ5FADPtIdpzRWBn2EXKlIt85l2_xLc';
 
         // Initialize Supabase client
-        let supabase = null;
+        let supabaseClient = null;
         let currentUser = null;
         let userProfile = null;
         let isAuthMode = 'login'; // 'login' or 'signup'
 
         function initSupabase() {
             if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
-                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 checkAuth();
             } else {
                 console.log('Supabase not configured - running in guest mode');
@@ -205,9 +205,9 @@
         // AUTHENTICATION FUNCTIONS
         // ============================================
         async function checkAuth() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
                 currentUser = session.user;
                 await loadUserProfile();
@@ -215,7 +215,7 @@
             }
 
             // Listen for auth changes
-            supabase.auth.onAuthStateChange(async (event, session) => {
+            supabaseClient.auth.onAuthStateChange(async (event, session) => {
                 if (session) {
                     currentUser = session.user;
                     await loadUserProfile();
@@ -245,12 +245,12 @@
         }
 
         async function signUp(email, password, username) {
-            if (!supabase) {
+            if (!supabaseClient) {
                 showAuthError('Supabase not configured');
                 return false;
             }
 
-            const { data, error } = await supabase.auth.signUp({
+            const { data, error } = await supabaseClient.auth.signUp({
                 email,
                 password,
                 options: {
@@ -283,12 +283,12 @@
         }
 
         async function signIn(email, password) {
-            if (!supabase) {
+            if (!supabaseClient) {
                 showAuthError('Supabase not configured');
                 return false;
             }
 
-            const { data, error } = await supabase.auth.signInWithPassword({
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
                 email,
                 password
             });
@@ -303,9 +303,9 @@
         }
 
         async function logout() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
-            await supabase.auth.signOut();
+            await supabaseClient.auth.signOut();
             currentUser = null;
             userProfile = null;
             updateUserDisplay();
@@ -358,7 +358,7 @@
         }
 
         async function getLeaderboard(land = null, limit = 10) {
-            if (!supabase) return [];
+            if (!supabaseClient) return [];
 
             let query = supabase
                 .from('leaderboard')
@@ -457,7 +457,7 @@
         }
 
         function subscribeLobbyUpdates(lobbyId) {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
             // Subscribe to lobby changes
             lobbySubscription = supabase
@@ -482,7 +482,7 @@
         }
 
         async function loadLobbyPlayers(lobbyId) {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
             const { data, error } = await supabase
                 .from('lobby_players')
@@ -579,7 +579,7 @@
 
             // Unsubscribe from updates
             if (lobbySubscription) {
-                supabase.removeChannel(lobbySubscription);
+                supabaseClient.removeChannel(lobbySubscription);
                 lobbySubscription = null;
             }
 
