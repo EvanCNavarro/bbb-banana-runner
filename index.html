@@ -191,6 +191,11 @@
         let userProfile = null;
         let isAuthMode = 'login'; // 'login' or 'signup'
 
+        // Declare early to avoid temporal dead zone issues with callbacks
+        let gameState = 'welcome';
+        let player = null;
+        let entities = [];
+
         function initSupabase() {
             if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
                 supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -888,7 +893,7 @@
             // Fix player and entity positions on orientation change
             // Only run after game is fully initialized (player, entities, and constants exist)
             if (oldHeight > 0 && oldHeight !== canvas.height &&
-                typeof player !== 'undefined' && typeof PLAYER_HEIGHT !== 'undefined') {
+                player !== null && typeof PLAYER_HEIGHT !== 'undefined') {
                 const oldGroundLevel = oldHeight - 70;
                 const newGroundLevel = canvas.height - 70;
                 const groundDiff = newGroundLevel - oldGroundLevel;
@@ -909,7 +914,7 @@
                 }
 
                 // Update all entity positions
-                if (typeof entities !== 'undefined' && entities.length > 0) {
+                if (entities && entities.length > 0) {
                     for (let i = entities.length - 1; i >= 0; i--) {
                         const ent = entities[i];
                         const entHeight = ent.pixels.length * ent.scale;
@@ -1461,7 +1466,7 @@
         }
 
         // Game state: 'welcome', 'menu', 'playing', 'gameover', 'leaderboard', 'lobby'
-        let gameState = 'welcome';
+        // (gameState declared early to avoid temporal dead zone)
         let gameMode = 'solo'; // 'solo' or 'multiplayer'
         let score = 0;
         let bananasCollected = 0;
@@ -1469,7 +1474,7 @@
         let speed = 6;
         let spawnCounter = 0;
         let scrollOffset = 0;
-        let entities = [];
+        // (entities declared early to avoid temporal dead zone)
         let scoreSaved = false; // Track if score was saved for current game
 
         // Leaderboard data
@@ -1521,8 +1526,8 @@
         // Menu action buttons (Solo, Multiplayer, Leaderboard, Login)
         let menuButtons = [];
 
-        // Player
-        const player = {
+        // Player (declared early to avoid temporal dead zone, assigned here)
+        player = {
             x: 100,
             y: getGroundLevel() - PLAYER_HEIGHT,
             vy: 0,
