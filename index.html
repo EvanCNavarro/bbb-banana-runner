@@ -163,7 +163,6 @@
                 <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required>
                 <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required>
                 <button type="submit" id="authSubmit">Login</button>
-                <button type="button" class="secondary" onclick="closeAuthModal()">Play as Guest</button>
             </form>
             <div class="toggle-text" id="authToggle">
                 Don't have an account? <a onclick="toggleAuthMode()">Sign Up</a>
@@ -212,6 +211,8 @@
                 currentUser = session.user;
                 await loadUserProfile();
                 updateUserDisplay();
+                // Go to menu if already logged in
+                gameState = 'menu';
             }
 
             // Listen for auth changes
@@ -220,18 +221,24 @@
                     currentUser = session.user;
                     await loadUserProfile();
                     updateUserDisplay();
+                    // Go to menu after login
+                    if (gameState === 'welcome') {
+                        gameState = 'menu';
+                    }
                 } else {
                     currentUser = null;
                     userProfile = null;
                     updateUserDisplay();
+                    // Go back to welcome on logout
+                    gameState = 'welcome';
                 }
             });
         }
 
         async function loadUserProfile() {
-            if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('profiles')
                 .select('*')
                 .eq('id', currentUser.id)
@@ -265,7 +272,7 @@
 
             // Create profile
             if (data.user) {
-                const { error: profileError } = await supabase
+                const { error: profileError } = await supabaseClient
                     .from('profiles')
                     .upsert({
                         id: data.user.id,
@@ -309,17 +316,17 @@
             currentUser = null;
             userProfile = null;
             updateUserDisplay();
-            gameState = 'menu';
+            gameState = 'welcome';
         }
 
         // ============================================
         // SCORE PERSISTENCE
         // ============================================
         async function saveScore(finalScore, bananas, landPlayed) {
-            if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
             // Save to game_sessions
-            const { error: sessionError } = await supabase
+            const { error: sessionError } = await supabaseClient
                 .from('game_sessions')
                 .insert({
                     player_id: currentUser.id,
@@ -346,7 +353,7 @@
                     updates.high_score = finalScore;
                 }
 
-                const { error: updateError } = await supabase
+                const { error: updateError } = await supabaseClient
                     .from('profiles')
                     .update(updates)
                     .eq('id', currentUser.id);
@@ -368,7 +375,7 @@
 
             if (land) {
                 // Get land-specific leaderboard from game_sessions
-                const { data, error } = await supabase
+                const { data, error } = await supabaseClient
                     .from('game_sessions')
                     .select('player_id, score, profiles!inner(username)')
                     .eq('land_played', land)
@@ -386,11 +393,11 @@
         // MULTIPLAYER LOBBY FUNCTIONS
         // ============================================
         async function createLobby() {
-            if (!supabase || !currentUser) return null;
+            if (!supabaseClient || !currentUser) return null;
 
             const lobbyCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('game_lobbies')
                 .insert({
                     code: lobbyCode,
@@ -414,10 +421,10 @@
         }
 
         async function findOrCreateLobby() {
-            if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
             // First try to find an existing waiting lobby
-            const { data: existingLobbies, error } = await supabase
+            const { data: existingLobbies, error } = await supabaseClient
                 .from('game_lobbies')
                 .select('*')
                 .eq('status', 'waiting')
@@ -441,9 +448,9 @@
         }
 
         async function joinLobbyAsPlayer(lobbyId) {
-            if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('lobby_players')
                 .insert({
                     lobby_id: lobbyId,
@@ -484,7 +491,7 @@
         async function loadLobbyPlayers(lobbyId) {
             if (!supabaseClient) return;
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('lobby_players')
                 .select('*, profiles:player_id(username)')
                 .eq('lobby_id', lobbyId);
@@ -503,12 +510,12 @@
         }
 
         async function toggleReady() {
-            if (!supabase || !currentUser || !currentLobby) return;
+            if (!supabaseClient || !currentUser || !currentLobby) return;
 
             const currentPlayer = lobbyPlayers.find(p => p.player_id === currentUser.id);
             if (!currentPlayer) return;
 
-            await supabase
+            await supabaseClient
                 .from('lobby_players')
                 .update({ is_ready: !currentPlayer.is_ready })
                 .eq('lobby_id', currentLobby.id)
@@ -516,9 +523,9 @@
         }
 
         async function startLobbyGame() {
-            if (!supabase || !currentLobby || !isLobbyHost) return;
+            if (!supabaseClient || !currentLobby || !isLobbyHost) return;
 
-            await supabase
+            await supabaseClient
                 .from('game_lobbies')
                 .update({ status: 'playing' })
                 .eq('id', currentLobby.id);
@@ -538,7 +545,7 @@
         }
 
         function subscribeGameUpdates() {
-            if (!supabase || !currentLobby) return;
+            if (!supabaseClient || !currentLobby) return;
 
             supabase
                 .channel(`game:${currentLobby.id}`)
@@ -555,7 +562,7 @@
         }
 
         function broadcastGameState(isGameOver = false) {
-            if (!supabase || !currentLobby || gameMode !== 'multiplayer') return;
+            if (!supabaseClient || !currentLobby || gameMode !== 'multiplayer') return;
 
             supabase
                 .channel(`game:${currentLobby.id}`)
@@ -572,7 +579,7 @@
         }
 
         async function leaveLobby() {
-            if (!supabase || !currentLobby) {
+            if (!supabaseClient || !currentLobby) {
                 gameState = 'menu';
                 return;
             }
@@ -584,7 +591,7 @@
             }
 
             // Remove player from lobby
-            await supabase
+            await supabaseClient
                 .from('lobby_players')
                 .delete()
                 .eq('lobby_id', currentLobby.id)
@@ -592,7 +599,7 @@
 
             // If host, delete the lobby
             if (isLobbyHost) {
-                await supabase
+                await supabaseClient
                     .from('game_lobbies')
                     .delete()
                     .eq('id', currentLobby.id);
@@ -608,10 +615,10 @@
         // SKINS & ACHIEVEMENTS FUNCTIONS
         // ============================================
         async function loadPlayerProgress() {
-            if (!supabase || !currentUser) return;
+            if (!supabaseClient || !currentUser) return;
 
             // Load unlocked skins
-            const { data: skins } = await supabase
+            const { data: skins } = await supabaseClient
                 .from('player_skins')
                 .select('skin_id')
                 .eq('player_id', currentUser.id);
@@ -626,7 +633,7 @@
             }
 
             // Load achievements
-            const { data: achievements } = await supabase
+            const { data: achievements } = await supabaseClient
                 .from('player_achievements')
                 .select('achievement_id')
                 .eq('player_id', currentUser.id);
@@ -637,9 +644,9 @@
         }
 
         async function unlockSkin(skinId) {
-            if (!supabase || !currentUser || unlockedSkins.includes(skinId)) return;
+            if (!supabaseClient || !currentUser || unlockedSkins.includes(skinId)) return;
 
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('player_skins')
                 .insert({ player_id: currentUser.id, skin_id: skinId });
 
@@ -650,9 +657,9 @@
         }
 
         async function unlockAchievement(achievementId) {
-            if (!supabase || !currentUser || unlockedAchievements.includes(achievementId)) return;
+            if (!supabaseClient || !currentUser || unlockedAchievements.includes(achievementId)) return;
 
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('player_achievements')
                 .insert({ player_id: currentUser.id, achievement_id: achievementId });
 
@@ -669,7 +676,7 @@
             selectedSkin = skinId;
 
             if (supabase && currentUser) {
-                await supabase
+                await supabaseClient
                     .from('profiles')
                     .update({ equipped_skin: skinId })
                     .eq('id', currentUser.id);
@@ -792,6 +799,10 @@
             document.getElementById('authModal').classList.remove('active');
             document.getElementById('authError').textContent = '';
             document.getElementById('authSuccess').style.display = 'none';
+            // Go to menu after login (only if logged in)
+            if (currentUser) {
+                gameState = 'menu';
+            }
         }
 
         function toggleAuthMode() {
@@ -1399,8 +1410,8 @@
             }
         }
 
-        // Game state: 'menu', 'playing', 'gameover', 'leaderboard'
-        let gameState = 'menu';
+        // Game state: 'welcome', 'menu', 'playing', 'gameover', 'leaderboard', 'lobby'
+        let gameState = 'welcome';
         let gameMode = 'solo'; // 'solo' or 'multiplayer'
         let score = 0;
         let bananasCollected = 0;
@@ -1579,7 +1590,7 @@
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
-            if (gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+            if (gameState === 'welcome' || gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
                 handleClick(touch.clientX, touch.clientY);
             } else {
                 jump();
@@ -1587,7 +1598,7 @@
         });
 
         canvas.addEventListener('click', (e) => {
-            if (gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+            if (gameState === 'welcome' || gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
                 if (!handleClick(e.clientX, e.clientY)) {
                     if (gameState === 'gameover') {
                         startGame();
@@ -1863,8 +1874,49 @@
                 ctx.fillRect(x + 22, groundY, 8, 8);
             }
 
-            if (gameState === 'menu') {
-                // Menu screen
+            if (gameState === 'welcome') {
+                // Welcome/Landing screen - shown before login
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.textAlign = 'center';
+
+                // Title
+                ctx.fillStyle = '#FFE135';
+                ctx.font = 'bold 64px monospace';
+                ctx.fillText('BANANA RUNNER', canvas.width / 2, 120);
+
+                // Draw banana sprite as logo
+                drawSprite(ctx, canvas.width / 2 - 40, 150, sprites.banana, 3, colors.banana);
+
+                // Game description
+                ctx.fillStyle = '#FFF';
+                ctx.font = '24px monospace';
+                ctx.fillText('An endless runner adventure!', canvas.width / 2, 280);
+
+                ctx.fillStyle = '#AAA';
+                ctx.font = '18px monospace';
+                ctx.fillText('Jump over obstacles and collect bananas', canvas.width / 2, 320);
+                ctx.fillText('Compete with friends in multiplayer mode', canvas.width / 2, 350);
+                ctx.fillText('Unlock achievements and climb the leaderboard', canvas.width / 2, 380);
+
+                // Features list
+                ctx.fillStyle = '#FFE135';
+                ctx.font = 'bold 16px monospace';
+                ctx.fillText('4 unique lands  |  Multiplayer battles  |  Global leaderboards', canvas.width / 2, 430);
+
+                // Login button
+                drawMenuButtons([
+                    { label: 'LOGIN / SIGN UP', action: 'login', primary: true }
+                ], canvas.height / 2 + 120);
+
+                // Footer
+                ctx.fillStyle = '#666';
+                ctx.font = '14px monospace';
+                ctx.fillText('Create an account to save your progress and compete!', canvas.width / 2, canvas.height - 40);
+
+            } else if (gameState === 'menu') {
+                // Menu screen - shown after login
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -1876,20 +1928,21 @@
                 // Draw banana sprite as logo
                 drawSprite(ctx, canvas.width / 2 - 30, 120, sprites.banana, 2, colors.banana);
 
-                // User stats if logged in
-                if (currentUser && userProfile) {
+                // User stats (always shown since user must be logged in)
+                if (userProfile) {
                     ctx.font = '18px monospace';
                     ctx.fillStyle = '#FFE135';
-                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, canvas.width / 2, 220);
+                    ctx.fillText(`Welcome, ${userProfile.username || 'Player'}!`, canvas.width / 2, 200);
+                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, canvas.width / 2, 230);
                     ctx.fillStyle = '#AAA';
-                    ctx.fillText(`Total Bananas: ${userProfile.total_bananas || 0}`, canvas.width / 2, 245);
+                    ctx.fillText(`Total Bananas: ${userProfile.total_bananas || 0}  |  Games: ${userProfile.total_games || 0}`, canvas.width / 2, 260);
                 }
 
                 // Land selection
                 ctx.fillStyle = '#FFF';
                 ctx.font = '20px monospace';
-                ctx.fillText('Select Land:', canvas.width / 2, 290);
-                drawLandButtons(310, false);
+                ctx.fillText('Select Land:', canvas.width / 2, 310);
+                drawLandButtons(330, false);
 
                 // Menu buttons
                 const menuBtns = [
@@ -1898,11 +1951,7 @@
                     { label: 'LEADERBOARD', action: 'leaderboard', primary: false }
                 ];
 
-                if (!currentUser) {
-                    menuBtns.push({ label: 'LOGIN / SIGN UP', action: 'login', primary: false });
-                }
-
-                drawMenuButtons(menuBtns, 400);
+                drawMenuButtons(menuBtns, 420);
 
                 // Instructions
                 ctx.font = '16px monospace';
