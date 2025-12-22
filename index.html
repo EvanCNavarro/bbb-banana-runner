@@ -877,10 +877,60 @@
         document.addEventListener('DOMContentLoaded', initSupabase);
 
         // Resize canvas to fill screen
+        let lastCanvasHeight = 0;
+
         function resizeCanvas() {
+            const oldHeight = canvas.height;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             ctx.imageSmoothingEnabled = false;
+
+            // Fix player and entity positions on orientation change
+            // Only run after game is fully initialized (player, entities, and constants exist)
+            if (oldHeight > 0 && oldHeight !== canvas.height &&
+                typeof player !== 'undefined' && typeof PLAYER_HEIGHT !== 'undefined') {
+                const oldGroundLevel = oldHeight - 70;
+                const newGroundLevel = canvas.height - 70;
+                const groundDiff = newGroundLevel - oldGroundLevel;
+
+                // Update player position
+                if (!player.jumping) {
+                    // If on ground, snap to new ground level
+                    player.y = newGroundLevel - PLAYER_HEIGHT;
+                } else {
+                    // If jumping, adjust y by the ground difference
+                    player.y += groundDiff;
+                    // Make sure player doesn't end up below ground
+                    if (player.y > newGroundLevel - PLAYER_HEIGHT) {
+                        player.y = newGroundLevel - PLAYER_HEIGHT;
+                        player.jumping = false;
+                        player.vy = 0;
+                    }
+                }
+
+                // Update all entity positions
+                if (typeof entities !== 'undefined' && entities.length > 0) {
+                    for (let i = entities.length - 1; i >= 0; i--) {
+                        const ent = entities[i];
+                        const entHeight = ent.pixels.length * ent.scale;
+
+                        if (ent.type === 'obstacle') {
+                            // Obstacles sit on ground
+                            ent.y = newGroundLevel - entHeight;
+                        } else if (ent.type === 'banana') {
+                            // Bananas float above ground
+                            ent.y = newGroundLevel - entHeight - BANANA_HEIGHT_OFFSET;
+                        }
+
+                        // Remove entities that are now off-screen (too far right after resize)
+                        if (ent.x > canvas.width + 100) {
+                            entities.splice(i, 1);
+                        }
+                    }
+                }
+            }
+
+            lastCanvasHeight = canvas.height;
         }
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
