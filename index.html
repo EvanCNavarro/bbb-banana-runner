@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poop Runner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 70%, #FAFAFA 100%);
+            font-family: monospace;
+            overflow: hidden;
+        }
+        canvas {
+            border: 2px solid #333;
+            background: #FAFAFA;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+
+        // Constants
+        const GROUND_LEVEL = 330;
+        const PLAYER_SCALE = 4;
+        const ENTITY_SCALE = 8;
+        const PLAYER_WIDTH = 12 * PLAYER_SCALE; // 48
+        const PLAYER_HEIGHT = 8 * PLAYER_SCALE; // 32
+        const ENTITY_WIDTH = 4 * ENTITY_SCALE; // 32
+        const ENTITY_HEIGHT = 4 * ENTITY_SCALE; // 32
+        const BANANA_HEIGHT_OFFSET = 28; // Floating higher
+
+        // Sprites (pixel art arrays)
+        const sprites = {
+            dino: [
+                [0,0,0,1,1,1,1,1,1,0,0,0],
+                [0,0,1,1,1,1,1,1,1,1,0,0],
+                [0,1,1,1,1,1,0,1,1,1,1,0],
+                [1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1],
+                [0,1,1,1,1,1,1,0,1,1,1,0],
+                [0,0,1,1,1,1,0,0,0,1,1,0],
+                [0,0,0,1,1,0,0,0,0,0,1,0]
+            ],
+            poop: [
+                [0,1,1,0],
+                [1,1,2,1],
+                [1,2,1,1],
+                [1,1,1,0]
+            ],
+            banana: [
+                [0,1,1,0],
+                [1,1,1,1],
+                [0,1,1,0],
+                [0,1,0,0]
+            ]
+        };
+
+        // Colors for each sprite
+        const colors = {
+            dino: {1: '#444444'},
+            poop: {1: '#888888', 2: '#666666'},
+            banana: {1: '#FF9900'}
+        };
+
+        // Draw sprite function
+        function drawSprite(ctx, x, y, pixels, scale, colorMap) {
+            for (let row = 0; row < pixels.length; row++) {
+                for (let col = 0; col < pixels[row].length; col++) {
+                    const colorId = pixels[row][col];
+                    if (colorId) {
+                        ctx.fillStyle = colorMap[colorId];
+                        ctx.fillRect(
+                            x + col * scale,
+                            y + row * scale,
+                            scale,
+                            scale
+                        );
+                    }
+                }
+            }
+        }
+
+        // Game state
+        let gameRunning = true;
+        let score = 0;
+        let bananasCollected = 0;
+        let gameTime = 0;
+        let speed = 6;
+        let spawnCounter = 0;
+        let scrollOffset = 0;
+        let entities = [];
+
+        // Player
+        const player = {
+            x: 100,
+            y: GROUND_LEVEL - PLAYER_HEIGHT,
+            vy: 0,
+            jumping: false,
+            groundY: GROUND_LEVEL - PLAYER_HEIGHT,
+            pixels: sprites.dino,
+            scale: PLAYER_SCALE,
+            colors: colors.dino
+        };
+
+        // Input handling
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (gameRunning) {
+                    if (!player.jumping) {
+                        player.vy = -18;
+                        player.jumping = true;
+                    }
+                } else {
+                    restart();
+                }
+            }
+        });
+
+        // Spawn entity
+        function spawn() {
+            const isBanana = Math.random() < 0.35;
+            const type = isBanana ? 'banana' : 'poop';
+            const pixels = sprites[type];
+            const entColors = colors[type];
+            const scale = ENTITY_SCALE;
+            const h = pixels.length * scale;
+            const y = isBanana ? GROUND_LEVEL - h - BANANA_HEIGHT_OFFSET : GROUND_LEVEL - h;
+
+            entities.push({
+                x: canvas.width + 20,
+                y: y,
+                pixels: pixels,
+                scale: scale,
+                colors: entColors,
+                type: type,
+                vx: 0 // Will be updated in loop
+            });
+        }
+
+        // Restart game
+        function restart() {
+            gameRunning = true;
+            score = 0;
+            bananasCollected = 0;
+            gameTime = 0;
+            speed = 6;
+            spawnCounter = 0;
+            scrollOffset = 0;
+            entities = [];
+            player.y = player.groundY;
+            player.vy = 0;
+            player.jumping = false;
+        }
+
+        // Update game logic
+        function update() {
+            if (!gameRunning) return;
+
+            gameTime++;
+            speed += 0.002; // Gradually increase speed
+            spawnCounter += speed;
+
+            // Spawn logic (random spacing)
+            if (spawnCounter > 280 + Math.random() * 220) {
+                spawn();
+                spawnCounter = 0;
+            }
+
+            // Player physics
+            if (player.jumping) {
+                player.vy += 0.8; // Gravity
+                player.y += player.vy;
+                if (player.y >= player.groundY) {
+                    player.y = player.groundY;
+                    player.jumping = false;
+                    player.vy = 0;
+                }
+            }
+
+            // Update entities
+            for (let i = entities.length - 1; i >= 0; i--) {
+                const ent = entities[i];
+                ent.x -= speed;
+
+                // Remove off-screen entities
+                const entW = ent.pixels[0].length * ent.scale;
+                if (ent.x + entW < -50) {
+                    entities.splice(i, 1);
+                    continue;
+                }
+
+                // Collision detection
+                const pRight = player.x + PLAYER_WIDTH;
+                const pBottom = player.y + PLAYER_HEIGHT;
+                const eRight = ent.x + (ent.pixels[0].length * ent.scale);
+                const eBottom = ent.y + (ent.pixels.length * ent.scale);
+
+                if (player.x < eRight &&
+                    pRight > ent.x &&
+                    player.y < eBottom &&
+                    pBottom > ent.y) {
+
+                    if (ent.type === 'poop') {
+                        gameRunning = false;
+                    } else {
+                        bananasCollected++;
+                        entities.splice(i, 1);
+                    }
+                }
+            }
+
+            // Update score (time survived + banana bonuses)
+            score = Math.floor(gameTime / 6) + (bananasCollected * 150);
+
+            scrollOffset = (scrollOffset + speed) % 40;
+        }
+
+        // Draw everything
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#FAFAFA';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw sky gradient (simple)
+            const grad = ctx.createLinearGradient(0, 0, 0, GROUND_LEVEL);
+            grad.addColorStop(0, '#87CEEB');
+            grad.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, GROUND_LEVEL);
+
+            // Draw scrolling ground
+            ctx.fillStyle = '#D8C896';
+            ctx.fillRect(0, GROUND_LEVEL, canvas.width, canvas.height - GROUND_LEVEL);
+
+            // Draw ground bumps/dots (scrolling)
+            ctx.fillStyle = '#EAE6C6';
+            let bumpX = (-scrollOffset) % 40;
+            for (let i = 0; i < canvas.width / 20 + 3; i++) {
+                const x = bumpX + (i * 40);
+                ctx.fillRect(x, GROUND_LEVEL - 4, 20, 8);
+                ctx.fillRect(x + 22, GROUND_LEVEL, 8, 8);
+            }
+
+            // Draw player
+            drawSprite(ctx, player.x, player.y, player.pixels, player.scale, player.colors);
+
+            // Draw entities
+            entities.forEach(ent => {
+                drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
+            });
+
+            // Draw scores
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 28px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Score: ${score}`, 20, 35);
+            ctx.fillText(`Bananas: ${bananasCollected}`, 20, 70);
+
+            // Game Over screen
+            if (!gameRunning) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 48px monospace';
+                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 20);
+
+                ctx.font = 'bold 32px monospace';
+                ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
+
+                ctx.font = 'bold 28px monospace';
+                ctx.fillText(`Bananas: ${bananasCollected}`, canvas.width / 2, canvas.height / 2 + 80);
+
+                ctx.font = '24px monospace';
+                ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 130);
+                ctx.textAlign = 'left';
+            } else {
+                ctx.textAlign = 'left';
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game
+        gameLoop();
+    </script>
+</body>
+</html>
