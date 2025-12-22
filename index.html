@@ -191,10 +191,11 @@
         let userProfile = null;
         let isAuthMode = 'login'; // 'login' or 'signup'
 
-        // Declare early to avoid temporal dead zone issues with callbacks
+        // Declare early to avoid temporal dead zone issues with callbacks and resize handlers
         let gameState = 'welcome';
         let player = null;
         let entities = [];
+        let spawnCounter = 0;
 
         function initSupabase() {
             if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
@@ -885,27 +886,30 @@
         let lastCanvasHeight = 0;
 
         function resizeCanvas() {
+            const oldWidth = canvas.width;
             const oldHeight = canvas.height;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             ctx.imageSmoothingEnabled = false;
 
-            // Fix player and entity positions on orientation change
-            // Only run after game is fully initialized (player, entities, and constants exist)
-            if (oldHeight > 0 && oldHeight !== canvas.height &&
-                player !== null && typeof PLAYER_HEIGHT !== 'undefined') {
-                const oldGroundLevel = oldHeight - 70;
-                const newGroundLevel = canvas.height - 70;
-                const groundDiff = newGroundLevel - oldGroundLevel;
+            // Detect significant orientation/size change (more than 100px difference)
+            const significantChange = (Math.abs(canvas.width - oldWidth) > 100 ||
+                                       Math.abs(canvas.height - oldHeight) > 100);
 
-                // Update player position
+            // Handle resize during active gameplay
+            if (oldHeight > 0 && player !== null && typeof PLAYER_HEIGHT !== 'undefined') {
+                const newGroundLevel = canvas.height - 70;
+
+                // Always snap player to correct ground position
                 if (!player.jumping) {
-                    // If on ground, snap to new ground level
                     player.y = newGroundLevel - PLAYER_HEIGHT;
                 } else {
-                    // If jumping, adjust y by the ground difference
+                    // Adjust jump position proportionally
+                    const oldGroundLevel = oldHeight - 70;
+                    const groundDiff = newGroundLevel - oldGroundLevel;
                     player.y += groundDiff;
-                    // Make sure player doesn't end up below ground
+
+                    // Ensure player doesn't end up below ground
                     if (player.y > newGroundLevel - PLAYER_HEIGHT) {
                         player.y = newGroundLevel - PLAYER_HEIGHT;
                         player.jumping = false;
@@ -913,22 +917,28 @@
                     }
                 }
 
-                // Update all entity positions
-                if (entities && entities.length > 0) {
+                // ANTI-CHEAT: On significant resize during gameplay, clear all entities
+                // This prevents position-based exploits where entities could be
+                // at inconsistent positions after orientation change
+                if (significantChange && gameState === 'playing' && entities.length > 0) {
+                    entities.length = 0; // Clear all entities
+                    spawnCounter = 0; // Reset spawn counter for fair new spawns
+                }
+                // For minor resizes, just update entity positions
+                else if (entities && entities.length > 0) {
+                    const newGroundLevel = canvas.height - 70;
                     for (let i = entities.length - 1; i >= 0; i--) {
                         const ent = entities[i];
                         const entHeight = ent.pixels.length * ent.scale;
 
                         if (ent.type === 'obstacle') {
-                            // Obstacles sit on ground
                             ent.y = newGroundLevel - entHeight;
                         } else if (ent.type === 'banana') {
-                            // Bananas float above ground
                             ent.y = newGroundLevel - entHeight - BANANA_HEIGHT_OFFSET;
                         }
 
-                        // Remove entities that are now off-screen (too far right after resize)
-                        if (ent.x > canvas.width + 100) {
+                        // Remove entities now off-screen
+                        if (ent.x > canvas.width + 100 || ent.x < -100) {
                             entities.splice(i, 1);
                         }
                     }
@@ -1472,7 +1482,7 @@
         let bananasCollected = 0;
         let gameTime = 0;
         let speed = 6;
-        let spawnCounter = 0;
+        // (spawnCounter declared early to avoid temporal dead zone)
         let scrollOffset = 0;
         // (entities declared early to avoid temporal dead zone)
         let scoreSaved = false; // Track if score was saved for current game
