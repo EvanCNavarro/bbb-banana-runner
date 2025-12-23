@@ -36,6 +36,7 @@
             z-index: 1000;
             justify-content: center;
             align-items: center;
+            cursor: pointer;
         }
         .modal-overlay.active {
             display: flex;
@@ -48,6 +49,7 @@
             max-width: 400px;
             width: 90%;
             box-shadow: 0 0 30px rgba(255, 225, 53, 0.3);
+            cursor: default;
         }
         .auth-modal h2 {
             color: #FFE135;
@@ -155,16 +157,16 @@
     <!-- Auth Modal -->
     <div id="authModal" class="modal-overlay">
         <div class="auth-modal">
-            <h2 id="authTitle">Login</h2>
+            <h2 id="authTitle">Sign Up</h2>
             <div id="authError" class="error-msg"></div>
             <div id="authSuccess" class="success-msg" style="display: none;"></div>
             <form id="authForm">
                 <input type="text" id="authUsername" placeholder="Username" autocomplete="username" required>
                 <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required>
-                <button type="submit" id="authSubmit">Login</button>
+                <button type="submit" id="authSubmit">Create Account</button>
             </form>
             <div class="toggle-text" id="authToggle">
-                Don't have an account? <a onclick="toggleAuthMode()">Sign Up</a>
+                Already have an account? <a onclick="toggleAuthMode()">Login</a>
             </div>
         </div>
     </div>
@@ -188,7 +190,7 @@
         let supabaseClient = null;
         let currentUser = null;
         let userProfile = null;
-        let isAuthMode = 'login'; // 'login' or 'signup'
+        let isAuthMode = 'signup'; // 'signup' or 'login' - default to signup for new users
 
         // Declare early to avoid temporal dead zone issues with callbacks and resize handlers
         let gameState = 'welcome';
@@ -898,6 +900,14 @@
                 await signUp(username, password);
             } else {
                 await signIn(username, password);
+            }
+        });
+
+        // Click outside modal to close
+        document.getElementById('authModal').addEventListener('click', (e) => {
+            // Only close if clicking the overlay itself, not the modal content
+            if (e.target.id === 'authModal') {
+                closeAuthModal();
             }
         });
 
