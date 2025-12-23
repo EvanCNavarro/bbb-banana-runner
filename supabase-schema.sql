@@ -10,14 +10,42 @@ CREATE TABLE IF NOT EXISTS profiles (
     username TEXT UNIQUE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-    -- Stats
+    -- Core Stats
     high_score INTEGER DEFAULT 0,
     total_games INTEGER DEFAULT 0,
     total_bananas BIGINT DEFAULT 0,
     total_score BIGINT DEFAULT 0,
+    total_time_played INTEGER DEFAULT 0, -- Total seconds played
+
+    -- Currency (spendable bananas for shop purchases)
+    spendable_bananas BIGINT DEFAULT 0,
 
     -- Customization
-    equipped_skin TEXT DEFAULT 'default'
+    equipped_skin TEXT DEFAULT 'default',
+
+    -- Power-up Stats
+    jetpacks_collected INTEGER DEFAULT 0,
+    dino_stomps_collected INTEGER DEFAULT 0,
+
+    -- Land-specific Stats
+    snow_games_played INTEGER DEFAULT 0,
+    desert_games_played INTEGER DEFAULT 0,
+    jungle_games_played INTEGER DEFAULT 0,
+    ocean_games_played INTEGER DEFAULT 0,
+    snow_best_score INTEGER DEFAULT 0,
+    desert_best_score INTEGER DEFAULT 0,
+    jungle_best_score INTEGER DEFAULT 0,
+    ocean_best_score INTEGER DEFAULT 0,
+
+    -- Gameplay Milestones
+    first_game_at TIMESTAMP WITH TIME ZONE,
+    last_game_at TIMESTAMP WITH TIME ZONE,
+    highest_level_reached INTEGER DEFAULT 0,
+    times_reached_rank_one INTEGER DEFAULT 0,
+
+    -- Purchase Stats
+    total_purchases INTEGER DEFAULT 0,
+    total_spent INTEGER DEFAULT 0
 );
 
 -- ============================================
@@ -31,6 +59,9 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     land_played TEXT NOT NULL,
     game_mode TEXT DEFAULT 'solo',
     duration INTEGER DEFAULT 0,
+    highest_level INTEGER DEFAULT 0,
+    jetpacks_used INTEGER DEFAULT 0,
+    dino_stomps_used INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -206,3 +237,28 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ============================================
+-- MIGRATION: Add new columns to existing tables
+-- (Run these if tables already exist)
+-- ============================================
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS total_time_played INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS jetpacks_collected INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS dino_stomps_collected INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS snow_games_played INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS desert_games_played INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS jungle_games_played INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ocean_games_played INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS snow_best_score INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS desert_best_score INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS jungle_best_score INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ocean_best_score INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_game_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_game_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS highest_level_reached INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS times_reached_rank_one INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS total_purchases INTEGER DEFAULT 0;
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS total_spent INTEGER DEFAULT 0;
+-- ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS highest_level INTEGER DEFAULT 0;
+-- ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS jetpacks_used INTEGER DEFAULT 0;
+-- ALTER TABLE game_sessions ADD COLUMN IF NOT EXISTS dino_stomps_used INTEGER DEFAULT 0;

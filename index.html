@@ -527,6 +527,41 @@
                     // Keep fallback profile that was already set
                 } else if (data) {
                     userProfile = data;
+
+                    // Sync playerStats with loaded profile data
+                    playerStats = {
+                        total_games: data.total_games || 0,
+                        high_score: data.high_score || 0,
+                        total_score: data.total_score || 0,
+                        total_bananas: data.total_bananas || 0,
+                        spendable_bananas: data.spendable_bananas || 0,
+                        total_time_played: data.total_time_played || 0,
+                        jetpacks_collected: data.jetpacks_collected || 0,
+                        dino_stomps_collected: data.dino_stomps_collected || 0,
+                        snow_games_played: data.snow_games_played || 0,
+                        desert_games_played: data.desert_games_played || 0,
+                        jungle_games_played: data.jungle_games_played || 0,
+                        ocean_games_played: data.ocean_games_played || 0,
+                        snow_best_score: data.snow_best_score || 0,
+                        desert_best_score: data.desert_best_score || 0,
+                        jungle_best_score: data.jungle_best_score || 0,
+                        ocean_best_score: data.ocean_best_score || 0,
+                        first_game_at: data.first_game_at || null,
+                        last_game_at: data.last_game_at || null,
+                        highest_level_reached: data.highest_level_reached || 0,
+                        times_reached_rank_one: data.times_reached_rank_one || 0,
+                        total_purchases: data.total_purchases || 0,
+                        total_spent: data.total_spent || 0,
+                        multiplayer_games: 0, // Will be tracked separately
+                        multiplayer_wins: 0   // Will be tracked separately
+                    };
+
+                    // Initialize lands played set from loaded data
+                    landsPlayed = new Set();
+                    if (data.snow_games_played > 0) landsPlayed.add('snow');
+                    if (data.desert_games_played > 0) landsPlayed.add('desert');
+                    if (data.jungle_games_played > 0) landsPlayed.add('jungle');
+                    if (data.ocean_games_played > 0) landsPlayed.add('ocean');
                 }
 
                 // Also load skins and achievements
@@ -697,7 +732,10 @@
         async function saveScore(finalScore, bananas, landPlayed) {
             if (!supabaseClient || !currentUser) return;
 
-            // Save to game_sessions
+            // Calculate game duration in seconds (gameTime is in frames at 60fps)
+            const gameDurationSeconds = Math.floor(gameTime / 60);
+
+            // Save to game_sessions with all tracked data
             const { error: sessionError } = await supabaseClient
                 .from('game_sessions')
                 .insert({
@@ -705,7 +743,11 @@
                     score: finalScore,
                     bananas_collected: bananas,
                     land_played: landPlayed,
-                    game_mode: 'solo'
+                    game_mode: 'solo',
+                    duration: gameDurationSeconds,
+                    highest_level: highestLevelReached,
+                    jetpacks_used: sessionJetpacksCollected,
+                    dino_stomps_used: sessionDinoStompsCollected
                 });
 
             if (sessionError) {
@@ -713,17 +755,49 @@
                 return;
             }
 
-            // Update profile stats
+            // Update profile stats with comprehensive tracking
             if (userProfile) {
+                const now = new Date().toISOString();
                 const updates = {
+                    // Core stats
                     total_games: (userProfile.total_games || 0) + 1,
                     total_bananas: (userProfile.total_bananas || 0) + bananas,
                     total_score: (userProfile.total_score || 0) + finalScore,
-                    spendable_bananas: (userProfile.spendable_bananas || 0) + bananas  // Add to spendable balance
+                    spendable_bananas: (userProfile.spendable_bananas || 0) + bananas,
+                    total_time_played: (userProfile.total_time_played || 0) + gameDurationSeconds,
+
+                    // Power-up stats
+                    jetpacks_collected: (userProfile.jetpacks_collected || 0) + sessionJetpacksCollected,
+                    dino_stomps_collected: (userProfile.dino_stomps_collected || 0) + sessionDinoStompsCollected,
+
+                    // Timestamps
+                    last_game_at: now
                 };
 
+                // Set first_game_at if this is the first game
+                if (!userProfile.first_game_at) {
+                    updates.first_game_at = now;
+                }
+
+                // Update high score if this is a new personal best
                 if (finalScore > (userProfile.high_score || 0)) {
                     updates.high_score = finalScore;
+                }
+
+                // Update highest level reached if this game reached higher
+                if (highestLevelReached > (userProfile.highest_level_reached || 0)) {
+                    updates.highest_level_reached = highestLevelReached;
+                }
+
+                // Update land-specific stats
+                const landKey = landPlayed.toLowerCase();
+                const landGamesKey = `${landKey}_games_played`;
+                const landBestKey = `${landKey}_best_score`;
+
+                updates[landGamesKey] = (userProfile[landGamesKey] || 0) + 1;
+
+                if (finalScore > (userProfile[landBestKey] || 0)) {
+                    updates[landBestKey] = finalScore;
                 }
 
                 const { error: updateError } = await supabaseClient
@@ -734,6 +808,9 @@
                 if (!updateError) {
                     userProfile = { ...userProfile, ...updates };
                     spendableBananas = userProfile.spendable_bananas;  // Update local state
+
+                    // Update local playerStats object for achievement checking
+                    Object.assign(playerStats, updates);
                 }
             }
         }
@@ -785,6 +862,21 @@
                     gameOverStats.globalTopScore = globalData.high_score;
                     gameOverStats.globalTopPlayer = globalData.username;
                     gameOverStats.isNewGlobalBest = currentUser && currentScore > globalData.high_score;
+
+                    // Track reaching #1 rank
+                    if (gameOverStats.isNewGlobalBest && currentUser) {
+                        playerStats.times_reached_rank_one = (playerStats.times_reached_rank_one || 0) + 1;
+
+                        // Persist to database
+                        await supabaseClient
+                            .from('profiles')
+                            .update({ times_reached_rank_one: playerStats.times_reached_rank_one })
+                            .eq('id', currentUser.id);
+
+                        if (userProfile) {
+                            userProfile.times_reached_rank_one = playerStats.times_reached_rank_one;
+                        }
+                    }
                 }
 
                 // Fetch biome/land top score
@@ -1574,17 +1666,39 @@
         }
 
         async function unlockAchievement(achievementId) {
-            if (!supabaseClient || !currentUser || unlockedAchievements.includes(achievementId)) return;
+            if (!currentUser || unlockedAchievements.includes(achievementId)) return;
 
-            const { error } = await supabaseClient
-                .from('player_achievements')
-                .insert({ player_id: currentUser.id, achievement_id: achievementId });
+            const achievement = ACHIEVEMENTS[achievementId];
+            if (!achievement) return;
 
-            if (!error) {
-                unlockedAchievements.push(achievementId);
-                const achievement = ACHIEVEMENTS[achievementId];
-                showNotification(`${achievement.icon} Achievement: ${achievement.name}!`);
+            // Persist to database
+            if (supabaseClient) {
+                const { error } = await supabaseClient
+                    .from('player_achievements')
+                    .insert({ player_id: currentUser.id, achievement_id: achievementId });
+
+                if (error) {
+                    console.error('Error unlocking achievement:', error);
+                    return;
+                }
+
+                // Award banana reward
+                if (achievement.reward > 0) {
+                    spendableBananas += achievement.reward;
+
+                    await supabaseClient
+                        .from('profiles')
+                        .update({ spendable_bananas: spendableBananas })
+                        .eq('id', currentUser.id);
+
+                    if (userProfile) {
+                        userProfile.spendable_bananas = spendableBananas;
+                    }
+                }
             }
+
+            unlockedAchievements.push(achievementId);
+            showNotification(`Achievement: ${achievement.name}! +${achievement.reward} bananas`);
         }
 
         async function equipSkin(skinId) {
@@ -1613,12 +1727,20 @@
             unlockedSkins.push(skinId);
             showNotification(`Purchased: ${skin.name}!`);
 
+            // Update local stats
+            playerStats.total_purchases = (playerStats.total_purchases || 0) + 1;
+            playerStats.total_spent = (playerStats.total_spent || 0) + skin.price;
+
             // Persist to Supabase
             if (supabaseClient && currentUser) {
-                // Update spendable bananas
+                // Update profile with new balance and purchase stats
                 const { error: updateError } = await supabaseClient
                     .from('profiles')
-                    .update({ spendable_bananas: spendableBananas })
+                    .update({
+                        spendable_bananas: spendableBananas,
+                        total_purchases: playerStats.total_purchases,
+                        total_spent: playerStats.total_spent
+                    })
                     .eq('id', currentUser.id);
 
                 if (updateError) {
@@ -1626,6 +1748,8 @@
                     // Rollback on error
                     spendableBananas += skin.price;
                     unlockedSkins = unlockedSkins.filter(s => s !== skinId);
+                    playerStats.total_purchases--;
+                    playerStats.total_spent -= skin.price;
                     return;
                 }
 
@@ -1641,62 +1765,87 @@
                 // Update local profile
                 if (userProfile) {
                     userProfile.spendable_bananas = spendableBananas;
+                    userProfile.total_purchases = playerStats.total_purchases;
+                    userProfile.total_spent = playerStats.total_spent;
                 }
             }
         }
 
+        /**
+         * Check all achievements against current player stats
+         * Called after each game to award any newly earned achievements
+         * Note: This is called AFTER saveScore(), so playerStats should be updated
+         */
         function checkAchievements(gameScore, gameBananas, gameTimeSeconds, isMultiplayer, didWin) {
-            // Track land played
+            if (!userProfile) return;
+
+            // Track land played locally
             landsPlayed.add(selectedLand);
 
-            // First game
-            if (userProfile && (userProfile.total_games || 0) >= 1) {
-                unlockAchievement('first_game');
-            }
+            // Get the current land key for checking land-specific stats
+            const landKey = selectedLand.toLowerCase();
 
-            // Banana collector (50 in one game)
-            if (gameBananas >= 50) {
-                unlockAchievement('banana_collector');
-            }
+            // Build current stats object for checking
+            // Include the current game's contributions
+            const stats = {
+                // Core stats (playerStats should already include this game's data)
+                total_games: playerStats.total_games || 0,
+                high_score: Math.max(playerStats.high_score || 0, gameScore),
+                total_bananas: playerStats.total_bananas || 0,
+                total_time_played: (playerStats.total_time_played || 0) + gameTimeSeconds,
+                jetpacks_collected: playerStats.jetpacks_collected || 0,
+                dino_stomps_collected: playerStats.dino_stomps_collected || 0,
+                highest_level_reached: Math.max(playerStats.highest_level_reached || 0, highestLevelReached),
 
-            // High scorer (10000 points)
-            if (gameScore >= 10000) {
-                unlockAchievement('high_scorer');
-            }
+                // Land-specific (use playerStats which was just updated)
+                snow_games_played: playerStats.snow_games_played || 0,
+                desert_games_played: playerStats.desert_games_played || 0,
+                jungle_games_played: playerStats.jungle_games_played || 0,
+                ocean_games_played: playerStats.ocean_games_played || 0,
 
-            // World traveler (all 4 lands)
-            if (landsPlayed.size >= 4) {
-                unlockAchievement('world_traveler');
-            }
+                // These need special handling since they're not always persisted
+                times_reached_rank_one: playerStats.times_reached_rank_one || 0,
+                total_purchases: playerStats.total_purchases || 0,
 
-            // Marathon runner (60 seconds)
-            if (gameTimeSeconds >= 60) {
-                unlockAchievement('marathon_runner');
-            }
+                // Multiplayer stats - add current game contribution
+                multiplayer_games: (playerStats.multiplayer_games || 0) + (isMultiplayer ? 1 : 0),
+                multiplayer_wins: (playerStats.multiplayer_wins || 0) + (isMultiplayer && didWin ? 1 : 0),
 
-            // Multiplayer achievements
-            if (isMultiplayer) {
-                unlockAchievement('multiplayer_debut');
-                if (didWin) {
-                    unlockAchievement('first_win');
+                // Special check for all lands
+                all_lands_played: landsPlayed.size >= 4
+            };
+
+            // Check each achievement
+            for (const [achievementId, achievement] of Object.entries(ACHIEVEMENTS)) {
+                // Skip if already unlocked
+                if (unlockedAchievements.includes(achievementId)) continue;
+
+                const req = achievement.requirement;
+                if (!req) continue;
+
+                let shouldUnlock = false;
+
+                // Special handling for all_lands_played
+                if (req.type === 'all_lands_played') {
+                    shouldUnlock = stats.all_lands_played;
+                }
+                // Standard numeric comparisons
+                else if (stats[req.type] !== undefined) {
+                    shouldUnlock = stats[req.type] >= req.value;
+                }
+
+                if (shouldUnlock) {
+                    unlockAchievement(achievementId);
                 }
             }
 
-            // Check profile-based achievements
-            if (userProfile) {
-                if ((userProfile.total_bananas || 0) >= 500) {
-                    unlockAchievement('banana_hoarder');
-                }
-                if ((userProfile.total_games || 0) >= 100) {
-                    unlockAchievement('dedicated');
-                }
-            }
-
-            // Check skin unlocks
-            checkSkinUnlocks(gameScore);
+            // Check skin unlocks based on achievements
+            // Pass multiplayer wins from this game
+            const mpWinsThisGame = (isMultiplayer && didWin) ? 1 : 0;
+            checkSkinUnlocks(gameScore, mpWinsThisGame);
         }
 
-        function checkSkinUnlocks(gameScore) {
+        function checkSkinUnlocks(gameScore, multiplayerWins = 0) {
             if (!userProfile) return;
 
             // Golden - 100 total bananas
@@ -1714,7 +1863,11 @@
                 unlockSkin('veteran');
             }
 
-            // Champion - 10 multiplayer wins (would need to track this)
+            // Champion - 10 multiplayer wins
+            const totalMpWins = (playerStats.multiplayer_wins || 0) + multiplayerWins;
+            if (totalMpWins >= 10) {
+                unlockSkin('champion');
+            }
         }
 
         // Notification system
@@ -2169,44 +2322,158 @@
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
             ],
-            // Jetpack Power-up (24x36 pixels) - Rocket in a bubble
+            // Jetpack Power-up (48x48 pixels) - Rocket in circular bubble with green outline
+            // 7 = green outline (good collectible)
             jetpack: [
-                [0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0],
-                [0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0],
-                [0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0],
-                [0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,0,0,0],
-                [0,0,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,0,0],
-                [0,0,5,5,5,5,5,5,5,5,1,1,1,1,5,5,5,5,5,5,5,5,0,0],
-                [0,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,0],
-                [5,5,5,5,5,5,5,5,1,1,2,2,2,2,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,2,2,2,2,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,2,2,2,2,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,2,2,2,2,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5],
-                [5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5],
-                [0,5,5,5,5,5,5,5,3,3,1,1,1,1,3,3,5,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,5,3,3,1,1,1,1,3,3,5,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,3,3,5,5,1,1,5,5,3,3,5,5,5,5,5,5,0],
-                [0,5,5,5,5,5,5,3,3,5,5,1,1,5,5,3,3,5,5,5,5,5,5,0],
-                [0,0,5,5,5,5,5,5,5,5,4,4,4,4,5,5,5,5,5,5,5,5,0,0],
-                [0,0,5,5,5,5,5,5,5,4,4,4,4,4,4,5,5,5,5,5,5,5,0,0],
-                [0,0,0,5,5,5,5,5,5,4,6,4,4,6,4,5,5,5,5,5,5,0,0,0],
-                [0,0,0,5,5,5,5,5,4,4,6,4,4,6,4,4,5,5,5,5,5,0,0,0],
-                [0,0,0,0,5,5,5,5,4,6,6,4,4,6,6,4,5,5,5,5,0,0,0,0],
-                [0,0,0,0,0,5,5,5,5,6,6,5,5,6,6,5,5,5,5,0,0,0,0,0],
-                [0,0,0,0,0,0,5,5,5,5,6,5,5,6,5,5,5,5,0,0,0,0,0,0],
-                [0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0],
-                [0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0],
-                [0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,0,0]
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0,0],
+                [0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,2,2,2,2,2,2,1,1,1,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0],
+                [0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,2,2,2,2,2,2,1,1,1,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0],
+                [0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,2,2,2,2,2,2,1,1,1,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0],
+                [0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0],
+                [0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0],
+                [0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0],
+                [0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,3,3,1,1,1,1,1,1,1,1,1,1,3,3,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,3,3,1,1,1,1,1,1,1,1,1,1,3,3,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,3,3,1,1,1,1,1,1,1,1,1,1,3,3,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,3,3,1,1,1,1,1,1,1,1,1,1,3,3,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,4,4,4,6,6,6,6,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,4,4,6,6,6,6,6,6,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,4,6,6,6,6,6,6,6,6,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6,6,6,6,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0],
+                [0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6,6,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0],
+                [0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0],
+                [0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0],
+                [0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0],
+                [0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0],
+                [0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0],
+                [0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ],
+            // T-Rex Power-up (48x48 pixels) - Dino in circular bubble with green outline
+            // 7 = green outline (good collectible)
+            trexPowerUp: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,2,2,1,1,1,1,1,1,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,7,0,0,0,0,0,0,0],
+                [0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,3,3,3,3,1,1,1,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0],
+                [0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0],
+                [0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0],
+                [0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0],
+                [0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0],
+                [0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0],
+                [0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,5,7,0,0],
+                [7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,5,1,5,5,5,5,5,5,5,5,5,5,7,7,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,7,0,0,0],
+                [0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0],
+                [0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0],
+                [0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0],
+                [0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0],
+                [0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0],
+                [0,0,0,0,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,0,0,0,0,0,0],
+                [0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0],
+                [0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,5,5,5,5,5,5,5,5,5,5,5,5,5,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ],
+            // T-Rex sprite (48x56 pixels) - Large Chrome dino style for player transformation
+            trex: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,3,3,3,3,3,3,3,3,3,3,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                [1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+                [0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+                [0,0,0,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+                [0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
             ],
             // Snowman (20x36 pixels)
             snowman: [
@@ -2786,7 +3053,20 @@
                 3: '#B71C1C',  // Red fins
                 4: '#FF5722',  // Orange flame
                 5: '#B3E5FC',  // Light blue bubble
-                6: '#FFEB3B'   // Yellow flame core
+                6: '#FFEB3B',  // Yellow flame core
+                7: '#2E7D32'   // Green outline (good collectible)
+            },
+            trexPowerUp: {
+                1: '#546E7A',  // Gray dino body
+                2: '#37474F',  // Dark gray shadow/eye
+                3: '#FFFFFF',  // White teeth
+                5: '#B3E5FC',  // Light blue bubble
+                7: '#2E7D32'   // Green outline (good collectible)
+            },
+            trex: {
+                1: '#546E7A',  // Gray dino body
+                2: '#37474F',  // Dark gray eye
+                3: '#FFFFFF'   // White teeth
             },
             // Transformative skin sprites and colors
             bananaSuit: {
@@ -3155,16 +3435,43 @@
 
         // Jetpack thrust particles
         function spawnJetpackParticles(x, y) {
+            // Fire core particles (bright, fast, inner)
+            for (let i = 0; i < 4; i++) {
+                particles.push({
+                    x: x + (Math.random() - 0.5) * 8,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 1.5,
+                    vy: 4 + Math.random() * 3,
+                    life: 0,
+                    color: ['#FFEB3B', '#FFF176', '#FFFFFF'][Math.floor(Math.random() * 3)], // Yellow/white core
+                    size: 4 + Math.random() * 4,
+                    maxLife: 12
+                });
+            }
+            // Fire outer particles (orange/red, medium)
             for (let i = 0; i < 3; i++) {
                 particles.push({
-                    x: x + (Math.random() - 0.5) * 10,
-                    y: y,
-                    vx: (Math.random() - 0.5) * 2,
+                    x: x + (Math.random() - 0.5) * 14,
+                    y: y + Math.random() * 4,
+                    vx: (Math.random() - 0.5) * 2.5,
                     vy: 3 + Math.random() * 2,
                     life: 0,
-                    color: ['#FF5722', '#FFEB3B', '#FF9800'][Math.floor(Math.random() * 3)],
-                    size: 3 + Math.random() * 3,
-                    maxLife: 15
+                    color: ['#FF5722', '#FF9800', '#F44336'][Math.floor(Math.random() * 3)], // Orange/red flames
+                    size: 5 + Math.random() * 5,
+                    maxLife: 18
+                });
+            }
+            // Smoke particles (gray, slow, dispersing)
+            for (let i = 0; i < 2; i++) {
+                particles.push({
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + Math.random() * 8,
+                    vx: (Math.random() - 0.5) * 3,
+                    vy: 2 + Math.random() * 1.5,
+                    life: 0,
+                    color: ['#757575', '#9E9E9E', '#BDBDBD'][Math.floor(Math.random() * 3)], // Gray smoke
+                    size: 6 + Math.random() * 6,
+                    maxLife: 25
                 });
             }
         }
@@ -3217,6 +3524,157 @@
         }
 
         // ============================================
+        // BACKGROUND ANNOUNCEMENT SYSTEM
+        // ============================================
+        let announcement = {
+            text: '',
+            life: 0,
+            maxLife: 120, // 2 seconds at 60fps
+            phase: 'none' // 'fadein', 'hold', 'fadeout', 'none'
+        };
+        let announcementQueue = []; // Queue for back-to-back announcements
+        let lastAnnouncedLevel = -1; // Track which level we announced (-1 = none yet)
+        let highestLevelReached = 0; // Track highest level for stats
+
+        /**
+         * Get the current level based on score (every 1000 points = 1 level)
+         * @param {number} currentScore - The player's current score
+         * @returns {number} The current level (0, 1, 2, ... infinite)
+         */
+        function getCurrentLevel(currentScore) {
+            return Math.floor(currentScore / 1000);
+        }
+
+        /**
+         * Queue an announcement to be shown
+         * If no announcement is playing, starts immediately
+         * @param {string} text - The text to display
+         */
+        function triggerAnnouncement(text) {
+            if (announcement.phase === 'none') {
+                // Start immediately if nothing playing
+                announcement = {
+                    text: text,
+                    life: 0,
+                    maxLife: 120, // 2 seconds total
+                    phase: 'fadein'
+                };
+            } else {
+                // Queue for later
+                announcementQueue.push(text);
+            }
+        }
+
+        /**
+         * Queue multiple announcements to play in sequence
+         * @param {string[]} texts - Array of announcement texts
+         */
+        function queueAnnouncements(texts) {
+            texts.forEach(text => triggerAnnouncement(text));
+        }
+
+        function updateAnnouncement() {
+            if (announcement.phase === 'none') {
+                // Check if there's a queued announcement
+                if (announcementQueue.length > 0) {
+                    const nextText = announcementQueue.shift();
+                    announcement = {
+                        text: nextText,
+                        life: 0,
+                        maxLife: 120,
+                        phase: 'fadein'
+                    };
+                }
+                return;
+            }
+
+            announcement.life++;
+
+            // Fade in for first 20 frames
+            if (announcement.phase === 'fadein' && announcement.life >= 20) {
+                announcement.phase = 'hold';
+            }
+            // Hold for middle section
+            else if (announcement.phase === 'hold' && announcement.life >= announcement.maxLife - 30) {
+                announcement.phase = 'fadeout';
+            }
+            // Fade out for last 30 frames
+            else if (announcement.phase === 'fadeout' && announcement.life >= announcement.maxLife) {
+                announcement.phase = 'none';
+                announcement.text = '';
+                // Queue processing happens at start of next call
+            }
+        }
+
+        function drawAnnouncement() {
+            if (announcement.phase === 'none' || !announcement.text) return;
+
+            const land = lands[selectedLand];
+            const textColor = land?.floatingTextColor || '#FFFFFF';
+
+            // Calculate alpha based on phase
+            let alpha = 0.4; // Base transparency
+            if (announcement.phase === 'fadein') {
+                alpha = 0.4 * (announcement.life / 20);
+            } else if (announcement.phase === 'fadeout') {
+                const fadeoutProgress = (announcement.life - (announcement.maxLife - 30)) / 30;
+                alpha = 0.4 * (1 - fadeoutProgress);
+            }
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            // Calculate font size to fit ~70% of screen width
+            const targetWidth = canvas.width * 0.7;
+            let fontSize = 100;
+            ctx.font = `bold ${fontSize}px monospace`;
+            let textWidth = ctx.measureText(announcement.text).width;
+
+            // Adjust font size to fit
+            while (textWidth > targetWidth && fontSize > 20) {
+                fontSize -= 5;
+                ctx.font = `bold ${fontSize}px monospace`;
+                textWidth = ctx.measureText(announcement.text).width;
+            }
+
+            // Position in center of screen, slightly above middle
+            const x = canvas.width / 2;
+            const y = canvas.height * 0.45;
+
+            ctx.fillStyle = textColor;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(announcement.text, x, y);
+
+            ctx.restore();
+        }
+
+        function clearAnnouncement() {
+            announcement = { text: '', life: 0, maxLife: 120, phase: 'none' };
+            announcementQueue = [];
+            lastAnnouncedLevel = -1;
+        }
+
+        /**
+         * Check if we've reached a new level and trigger announcement
+         * Levels are infinite (no cap)
+         */
+        function checkLevelAnnouncement() {
+            const currentLevel = getCurrentLevel(score);
+
+            // Track highest level reached for stats
+            if (currentLevel > highestLevelReached) {
+                highestLevelReached = currentLevel;
+            }
+
+            // Check if we've reached a new level (1 or higher)
+            if (currentLevel > lastAnnouncedLevel && currentLevel >= 1) {
+                triggerAnnouncement(`LEVEL ${currentLevel}`);
+                lastAnnouncedLevel = currentLevel;
+            }
+        }
+
+        // ============================================
         // JUMP OVER OBSTACLE TRACKING
         // ============================================
         let obstaclesJumpedOver = new Set(); // Track which obstacle groups we've cleared
@@ -3233,10 +3691,20 @@
         let jetpackOriginalY = 0; // Original ground Y to return to
         let jetpackSpawnCounter = 0; // Track spawns to guarantee ~1 per run
         let powerUpBonusScore = 0; // Accumulated power-up bonus points
-        const JETPACK_DURATION = 300; // 5 seconds at 60fps
+        const JETPACK_DURATION = 360; // 6 seconds at 60fps
         const JETPACK_FLY_HEIGHT = 120; // How high above ground to fly
         const JETPACK_RISE_SPEED = 8; // Speed of initial rise
         const JETPACK_DESCEND_SPEED = 1; // Slow descent speed
+
+        // ============================================
+        // T-REX POWER-UP STATE
+        // ============================================
+        let trexActive = false;
+        let trexTimer = 0; // Frames remaining (6 sec = 360 frames at 60fps)
+        const TREX_DURATION = 360; // 6 seconds at 60fps
+        const TREX_WIDTH = 48 * PLAYER_SCALE; // T-Rex sprite is 48px wide
+        const TREX_HEIGHT = 48 * PLAYER_SCALE; // T-Rex sprite height (just body, not tail)
+        let lastPowerUpType = 'trex'; // Alternate between 'jetpack' and 'trex'
 
         // Game state: 'welcome', 'menu', 'playing', 'gameover', 'leaderboard', 'lobby'
         // (gameState declared early to avoid temporal dead zone)
@@ -3460,17 +3928,430 @@
             }
         };
 
-        // Achievements system
+        // ============================================
+        // COMPREHENSIVE ACHIEVEMENTS SYSTEM
+        // ============================================
+        // Each achievement has:
+        // - name: Display name
+        // - description: Kid-friendly description
+        // - reward: Banana reward for unlocking
+        // - requirement: { type, value } for unlock logic
+        // - category: For organizing in achievements page
         const ACHIEVEMENTS = {
-            first_game: { name: 'First Steps', description: 'Play your first game', icon: '🎮' },
-            banana_collector: { name: 'Banana Collector', description: 'Collect 50 bananas in one game', icon: '🍌' },
-            high_scorer: { name: 'High Scorer', description: 'Score 10000 points', icon: '🏆' },
-            world_traveler: { name: 'World Traveler', description: 'Play on all 4 lands', icon: '🌍' },
-            marathon_runner: { name: 'Marathon Runner', description: 'Survive for 60 seconds', icon: '🏃' },
-            multiplayer_debut: { name: 'Social Butterfly', description: 'Play your first multiplayer game', icon: '👥' },
-            first_win: { name: 'Victory!', description: 'Win your first multiplayer game', icon: '🥇' },
-            banana_hoarder: { name: 'Banana Hoarder', description: 'Collect 500 total bananas', icon: '🍌' },
-            dedicated: { name: 'Dedicated', description: 'Play 100 games', icon: '⭐' }
+            // =====================================
+            // GETTING STARTED (Games Played)
+            // =====================================
+            first_game: {
+                name: 'First Steps',
+                description: 'Play your very first game!',
+                reward: 5,
+                requirement: { type: 'total_games', value: 1 },
+                category: 'games'
+            },
+            getting_started: {
+                name: 'Getting Started',
+                description: 'Play 5 games total',
+                reward: 10,
+                requirement: { type: 'total_games', value: 5 },
+                category: 'games'
+            },
+            regular_player: {
+                name: 'Regular Player',
+                description: 'Play 10 games total',
+                reward: 15,
+                requirement: { type: 'total_games', value: 10 },
+                category: 'games'
+            },
+            dedicated_runner: {
+                name: 'Dedicated Runner',
+                description: 'Play 25 games total',
+                reward: 25,
+                requirement: { type: 'total_games', value: 25 },
+                category: 'games'
+            },
+            banana_master: {
+                name: 'Banana Master',
+                description: 'Play 50 games total',
+                reward: 50,
+                requirement: { type: 'total_games', value: 50 },
+                category: 'games'
+            },
+            true_champion: {
+                name: 'True Champion',
+                description: 'Play 100 games total!',
+                reward: 100,
+                requirement: { type: 'total_games', value: 100 },
+                category: 'games'
+            },
+
+            // =====================================
+            // SCORE ACHIEVEMENTS
+            // =====================================
+            first_hundred: {
+                name: 'First Hundred',
+                description: 'Score 100 points in one game',
+                reward: 5,
+                requirement: { type: 'high_score', value: 100 },
+                category: 'score'
+            },
+            making_progress: {
+                name: 'Making Progress',
+                description: 'Score 500 points in one game',
+                reward: 10,
+                requirement: { type: 'high_score', value: 500 },
+                category: 'score'
+            },
+            breaking_through: {
+                name: 'Breaking Through',
+                description: 'Score 1000 points in one game',
+                reward: 15,
+                requirement: { type: 'high_score', value: 1000 },
+                category: 'score'
+            },
+            skilled_runner: {
+                name: 'Skilled Runner',
+                description: 'Score 2500 points in one game',
+                reward: 25,
+                requirement: { type: 'high_score', value: 2500 },
+                category: 'score'
+            },
+            expert_runner: {
+                name: 'Expert Runner',
+                description: 'Score 5000 points in one game',
+                reward: 50,
+                requirement: { type: 'high_score', value: 5000 },
+                category: 'score'
+            },
+            master_runner: {
+                name: 'Master Runner',
+                description: 'Score 10000 points in one game!',
+                reward: 100,
+                requirement: { type: 'high_score', value: 10000 },
+                category: 'score'
+            },
+            legendary_runner: {
+                name: 'Legendary Runner',
+                description: 'Score 25000 points in one game!',
+                reward: 250,
+                requirement: { type: 'high_score', value: 25000 },
+                category: 'score'
+            },
+
+            // =====================================
+            // BANANA COLLECTION
+            // =====================================
+            first_banana: {
+                name: 'First Banana',
+                description: 'Collect your first banana!',
+                reward: 1,
+                requirement: { type: 'total_bananas', value: 1 },
+                category: 'bananas'
+            },
+            banana_bunch: {
+                name: 'Banana Bunch',
+                description: 'Collect 10 bananas total',
+                reward: 5,
+                requirement: { type: 'total_bananas', value: 10 },
+                category: 'bananas'
+            },
+            banana_collector: {
+                name: 'Banana Collector',
+                description: 'Collect 50 bananas total',
+                reward: 15,
+                requirement: { type: 'total_bananas', value: 50 },
+                category: 'bananas'
+            },
+            banana_hoarder: {
+                name: 'Banana Hoarder',
+                description: 'Collect 100 bananas total',
+                reward: 25,
+                requirement: { type: 'total_bananas', value: 100 },
+                category: 'bananas'
+            },
+            banana_baron: {
+                name: 'Banana Baron',
+                description: 'Collect 500 bananas total',
+                reward: 75,
+                requirement: { type: 'total_bananas', value: 500 },
+                category: 'bananas'
+            },
+            banana_billionaire: {
+                name: 'Banana Billionaire',
+                description: 'Collect 1000 bananas total!',
+                reward: 150,
+                requirement: { type: 'total_bananas', value: 1000 },
+                category: 'bananas'
+            },
+
+            // =====================================
+            // POWER-UP ACHIEVEMENTS (Jetpack)
+            // =====================================
+            first_flight: {
+                name: 'First Flight',
+                description: 'Use a jetpack for the first time!',
+                reward: 10,
+                requirement: { type: 'jetpacks_collected', value: 1 },
+                category: 'powerups'
+            },
+            sky_high: {
+                name: 'Sky High',
+                description: 'Use 10 jetpacks total',
+                reward: 25,
+                requirement: { type: 'jetpacks_collected', value: 10 },
+                category: 'powerups'
+            },
+            rocket_man: {
+                name: 'Rocket Man',
+                description: 'Use 25 jetpacks total',
+                reward: 50,
+                requirement: { type: 'jetpacks_collected', value: 25 },
+                category: 'powerups'
+            },
+
+            // =====================================
+            // POWER-UP ACHIEVEMENTS (T-Rex)
+            // =====================================
+            first_stomp: {
+                name: 'First Stomp',
+                description: 'Use a Dino Stomp for the first time!',
+                reward: 10,
+                requirement: { type: 'dino_stomps_collected', value: 1 },
+                category: 'powerups'
+            },
+            dino_power: {
+                name: 'Dino Power',
+                description: 'Use 10 Dino Stomps total',
+                reward: 25,
+                requirement: { type: 'dino_stomps_collected', value: 10 },
+                category: 'powerups'
+            },
+            trex_king: {
+                name: 'T-Rex King',
+                description: 'Use 25 Dino Stomps total!',
+                reward: 50,
+                requirement: { type: 'dino_stomps_collected', value: 25 },
+                category: 'powerups'
+            },
+
+            // =====================================
+            // LEVEL ACHIEVEMENTS
+            // =====================================
+            level_one: {
+                name: 'Level One',
+                description: 'Reach Level 1 (score 1000)',
+                reward: 10,
+                requirement: { type: 'highest_level_reached', value: 1 },
+                category: 'levels'
+            },
+            level_five: {
+                name: 'Level Five',
+                description: 'Reach Level 5 (score 5000)',
+                reward: 35,
+                requirement: { type: 'highest_level_reached', value: 5 },
+                category: 'levels'
+            },
+            level_ten: {
+                name: 'Level Ten',
+                description: 'Reach Level 10 (score 10000)!',
+                reward: 75,
+                requirement: { type: 'highest_level_reached', value: 10 },
+                category: 'levels'
+            },
+            level_master: {
+                name: 'Level Master',
+                description: 'Reach Level 25 (score 25000)!',
+                reward: 200,
+                requirement: { type: 'highest_level_reached', value: 25 },
+                category: 'levels'
+            },
+
+            // =====================================
+            // LAND/BIOME EXPLORATION
+            // =====================================
+            snow_explorer: {
+                name: 'Snow Explorer',
+                description: 'Play a game in Snow Land',
+                reward: 5,
+                requirement: { type: 'snow_games_played', value: 1 },
+                category: 'lands'
+            },
+            desert_explorer: {
+                name: 'Desert Explorer',
+                description: 'Play a game in Desert Land',
+                reward: 5,
+                requirement: { type: 'desert_games_played', value: 1 },
+                category: 'lands'
+            },
+            jungle_explorer: {
+                name: 'Jungle Explorer',
+                description: 'Play a game in Jungle Land',
+                reward: 5,
+                requirement: { type: 'jungle_games_played', value: 1 },
+                category: 'lands'
+            },
+            ocean_explorer: {
+                name: 'Ocean Explorer',
+                description: 'Play a game in Ocean Land',
+                reward: 5,
+                requirement: { type: 'ocean_games_played', value: 1 },
+                category: 'lands'
+            },
+            world_traveler: {
+                name: 'World Traveler',
+                description: 'Play on all 4 different lands!',
+                reward: 25,
+                requirement: { type: 'all_lands_played', value: true },
+                category: 'lands'
+            },
+            snow_master: {
+                name: 'Snow Master',
+                description: 'Play 10 games in Snow Land',
+                reward: 20,
+                requirement: { type: 'snow_games_played', value: 10 },
+                category: 'lands'
+            },
+            desert_master: {
+                name: 'Desert Master',
+                description: 'Play 10 games in Desert Land',
+                reward: 20,
+                requirement: { type: 'desert_games_played', value: 10 },
+                category: 'lands'
+            },
+            jungle_master: {
+                name: 'Jungle Master',
+                description: 'Play 10 games in Jungle Land',
+                reward: 20,
+                requirement: { type: 'jungle_games_played', value: 10 },
+                category: 'lands'
+            },
+            ocean_master: {
+                name: 'Ocean Master',
+                description: 'Play 10 games in Ocean Land',
+                reward: 20,
+                requirement: { type: 'ocean_games_played', value: 10 },
+                category: 'lands'
+            },
+
+            // =====================================
+            // TIME PLAYED
+            // =====================================
+            warming_up: {
+                name: 'Warming Up',
+                description: 'Play for 5 minutes total',
+                reward: 10,
+                requirement: { type: 'total_time_played', value: 300 },
+                category: 'time'
+            },
+            getting_comfortable: {
+                name: 'Getting Comfortable',
+                description: 'Play for 15 minutes total',
+                reward: 25,
+                requirement: { type: 'total_time_played', value: 900 },
+                category: 'time'
+            },
+            time_flies: {
+                name: 'Time Flies',
+                description: 'Play for 30 minutes total',
+                reward: 50,
+                requirement: { type: 'total_time_played', value: 1800 },
+                category: 'time'
+            },
+            dedicated_player: {
+                name: 'Dedicated Player',
+                description: 'Play for 1 hour total!',
+                reward: 100,
+                requirement: { type: 'total_time_played', value: 3600 },
+                category: 'time'
+            },
+            hardcore_gamer: {
+                name: 'Hardcore Gamer',
+                description: 'Play for 2 hours total!',
+                reward: 200,
+                requirement: { type: 'total_time_played', value: 7200 },
+                category: 'time'
+            },
+
+            // =====================================
+            // LEADERBOARD
+            // =====================================
+            top_banana: {
+                name: 'Top Banana',
+                description: 'Reach #1 on the leaderboard!',
+                reward: 100,
+                requirement: { type: 'times_reached_rank_one', value: 1 },
+                category: 'leaderboard'
+            },
+            reigning_champion: {
+                name: 'Reigning Champion',
+                description: 'Reach #1 on the leaderboard 5 times!',
+                reward: 250,
+                requirement: { type: 'times_reached_rank_one', value: 5 },
+                category: 'leaderboard'
+            },
+
+            // =====================================
+            // SHOP/PURCHASES
+            // =====================================
+            first_purchase: {
+                name: 'First Purchase',
+                description: 'Buy your first item from the shop!',
+                reward: 10,
+                requirement: { type: 'total_purchases', value: 1 },
+                category: 'shop'
+            },
+            collector: {
+                name: 'Collector',
+                description: 'Buy 5 items from the shop',
+                reward: 25,
+                requirement: { type: 'total_purchases', value: 5 },
+                category: 'shop'
+            },
+            shopaholic: {
+                name: 'Shopaholic',
+                description: 'Buy 10 items from the shop!',
+                reward: 75,
+                requirement: { type: 'total_purchases', value: 10 },
+                category: 'shop'
+            },
+
+            // =====================================
+            // MULTIPLAYER
+            // =====================================
+            social_butterfly: {
+                name: 'Social Butterfly',
+                description: 'Play your first multiplayer game!',
+                reward: 15,
+                requirement: { type: 'multiplayer_games', value: 1 },
+                category: 'multiplayer'
+            },
+            first_win: {
+                name: 'Victory!',
+                description: 'Win your first multiplayer game!',
+                reward: 25,
+                requirement: { type: 'multiplayer_wins', value: 1 },
+                category: 'multiplayer'
+            },
+            champion: {
+                name: 'Champion',
+                description: 'Win 10 multiplayer games!',
+                reward: 100,
+                requirement: { type: 'multiplayer_wins', value: 10 },
+                category: 'multiplayer'
+            }
+        };
+
+        // Achievement categories for organizing the achievements page
+        const ACHIEVEMENT_CATEGORIES = {
+            games: { name: 'Games Played', order: 1 },
+            score: { name: 'Score', order: 2 },
+            bananas: { name: 'Bananas', order: 3 },
+            levels: { name: 'Levels', order: 4 },
+            powerups: { name: 'Power-Ups', order: 5 },
+            lands: { name: 'Lands', order: 6 },
+            time: { name: 'Time Played', order: 7 },
+            leaderboard: { name: 'Leaderboard', order: 8 },
+            shop: { name: 'Shop', order: 9 },
+            multiplayer: { name: 'Multiplayer', order: 10 }
         };
 
         let unlockedSkins = ['default'];
@@ -3478,6 +4359,56 @@
         let selectedSkin = 'default';
         let spendableBananas = 0;  // Currency for shop purchases
         let landsPlayed = new Set();
+
+        // ============================================
+        // SESSION STATS TRACKING
+        // ============================================
+        // These track stats for the current game session
+        let sessionJetpacksCollected = 0;
+        let sessionDinoStompsCollected = 0;
+        let sessionGameDuration = 0; // in seconds
+
+        // ============================================
+        // LIFETIME PLAYER STATS (synced with database)
+        // ============================================
+        // These aggregate stats are loaded from and saved to the database
+        let playerStats = {
+            // Core stats
+            total_games: 0,
+            high_score: 0,
+            total_score: 0,
+            total_bananas: 0,
+            spendable_bananas: 0,
+            total_time_played: 0, // in seconds
+
+            // Power-up stats
+            jetpacks_collected: 0,
+            dino_stomps_collected: 0,
+
+            // Land-specific stats
+            snow_games_played: 0,
+            desert_games_played: 0,
+            jungle_games_played: 0,
+            ocean_games_played: 0,
+            snow_best_score: 0,
+            desert_best_score: 0,
+            jungle_best_score: 0,
+            ocean_best_score: 0,
+
+            // Milestones
+            first_game_at: null,
+            last_game_at: null,
+            highest_level_reached: 0,
+            times_reached_rank_one: 0,
+
+            // Purchase stats
+            total_purchases: 0,
+            total_spent: 0,
+
+            // Multiplayer stats (for achievements)
+            multiplayer_games: 0,
+            multiplayer_wins: 0
+        };
 
         // Shop scroll state
         let shopScrollY = 0;          // Current scroll offset
@@ -3488,6 +4419,16 @@
         let shopLastY = 0;            // Last Y for velocity calculation
         let shopLastTime = 0;         // Last time for velocity calculation
         let shopDragDistance = 0;     // Total distance moved (for tap vs scroll detection)
+
+        // Achievements scroll state
+        let achievementsScrollY = 0;
+        let achievementsScrollMax = 0;
+        let achievementsScrollVel = 0;
+        let achievementsDragging = false;
+        let achievementsDragStartY = 0;
+        let achievementsLastY = 0;
+        let achievementsLastTime = 0;
+        let achievementsDragDistance = 0;
 
         // Jump buffering - stores timestamp of last jump attempt
         // JUMP_BUFFER_MS imported from config.js
@@ -3615,11 +4556,16 @@
                     shopScrollY = 0;  // Reset scroll when entering shop
                     shopScrollVel = 0;
                     break;
+                case 'achievements':
+                    gameState = 'achievements';
+                    achievementsScrollY = 0;  // Reset scroll when entering achievements
+                    achievementsScrollVel = 0;
+                    break;
                 case 'login':
                     showAuthModal();
                     break;
                 case 'back':
-                    if (gameState === 'join-lobby' || gameState === 'multiplayer-menu' || gameState === 'shop') {
+                    if (gameState === 'join-lobby' || gameState === 'multiplayer-menu' || gameState === 'shop' || gameState === 'achievements' || gameState === 'leaderboard') {
                         gameState = 'menu';
                     } else {
                         gameState = 'menu';
@@ -3697,14 +4643,26 @@
                     return;
                 }
 
-                // Normal jump when not using jetpack
-                if (!jetpackActive && !player.jumping) {
+                // If T-Rex is active, exit T-Rex mode and jump
+                if (trexActive) {
+                    // Exit T-Rex and jump out
+                    trexActive = false;
+                    trexTimer = 0;
+                    player.vy = getJumpVelocity();
+                    player.jumping = true;
+                    jumpHeld = true;
+                    jumpBufferTime = 0;
+                    return;
+                }
+
+                // Normal jump when not using power-ups
+                if (!jetpackActive && !trexActive && !player.jumping) {
                     // On ground - jump immediately with screen-scaled velocity
                     player.vy = getJumpVelocity();
                     player.jumping = true;
                     jumpHeld = true;
                     jumpBufferTime = 0;
-                } else if (!jetpackActive) {
+                } else if (!jetpackActive && !trexActive) {
                     // In air - buffer the jump request
                     jumpBufferTime = Date.now();
                 }
@@ -3732,7 +4690,7 @@
                 }
             }
             if (e.code === 'Escape') {
-                if (gameState === 'leaderboard' || gameState === 'shop') {
+                if (gameState === 'leaderboard' || gameState === 'shop' || gameState === 'achievements') {
                     gameState = 'menu';
                 }
             }
@@ -3746,7 +4704,7 @@
         });
 
         // Menu states where clicks are handled as buttons
-        const MENU_STATES = ['welcome', 'menu', 'gameover', 'leaderboard', 'lobby', 'multiplayer-menu', 'join-lobby', 'multiplayer-results', 'shop'];
+        const MENU_STATES = ['welcome', 'menu', 'gameover', 'leaderboard', 'lobby', 'multiplayer-menu', 'join-lobby', 'multiplayer-results', 'shop', 'achievements'];
 
         function isMenuState() {
             return MENU_STATES.includes(gameState);
@@ -3757,7 +4715,7 @@
             e.preventDefault();
             const touch = e.touches[0];
 
-            // Shop scroll handling
+            // Shop/Achievements scroll handling
             if (gameState === 'shop') {
                 const rect = canvas.getBoundingClientRect();
                 const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
@@ -3766,8 +4724,19 @@
                 shopLastY = y;
                 shopLastTime = Date.now();
                 shopScrollVel = 0;
-                shopDragDistance = 0;  // Reset drag distance for tap detection
-                return;  // Don't process as click yet
+                shopDragDistance = 0;
+                return;
+            }
+            if (gameState === 'achievements') {
+                const rect = canvas.getBoundingClientRect();
+                const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+                achievementsDragging = true;
+                achievementsDragStartY = y;
+                achievementsLastY = y;
+                achievementsLastTime = Date.now();
+                achievementsScrollVel = 0;
+                achievementsDragDistance = 0;
+                return;
             }
 
             if (isMenuState()) {
@@ -3777,7 +4746,7 @@
             }
         });
 
-        // Touch move for shop scrolling
+        // Touch move for shop/achievements scrolling
         canvas.addEventListener('touchmove', (e) => {
             if (gameState === 'shop' && shopDragging) {
                 e.preventDefault();
@@ -3785,19 +4754,35 @@
                 const rect = canvas.getBoundingClientRect();
                 const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
 
-                // Calculate delta and update scroll
                 const delta = shopLastY - y;
                 shopScrollY = Math.max(0, Math.min(shopScrollMax, shopScrollY + delta));
-                shopDragDistance += Math.abs(delta);  // Track total distance for tap detection
+                shopDragDistance += Math.abs(delta);
 
-                // Track for velocity
                 const now = Date.now();
                 const dt = now - shopLastTime;
                 if (dt > 0) {
-                    shopScrollVel = delta / dt * 16;  // Normalize to ~60fps
+                    shopScrollVel = delta / dt * 16;
                 }
                 shopLastY = y;
                 shopLastTime = now;
+            }
+            if (gameState === 'achievements' && achievementsDragging) {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const y = (touch.clientY - rect.top) * (canvas.height / rect.height);
+
+                const delta = achievementsLastY - y;
+                achievementsScrollY = Math.max(0, Math.min(achievementsScrollMax, achievementsScrollY + delta));
+                achievementsDragDistance += Math.abs(delta);
+
+                const now = Date.now();
+                const dt = now - achievementsLastTime;
+                if (dt > 0) {
+                    achievementsScrollVel = delta / dt * 16;
+                }
+                achievementsLastY = y;
+                achievementsLastTime = now;
             }
         }, { passive: false });
 
@@ -3810,8 +4795,19 @@
                 const wasDragging = shopDragging;
                 shopDragging = false;
 
-                // If barely moved (< 10 pixels), treat as tap/click
                 if (wasDragging && shopDragDistance < 10 && e.changedTouches.length > 0) {
+                    const touch = e.changedTouches[0];
+                    handleClick(touch.clientX, touch.clientY);
+                }
+                return;
+            }
+
+            // Achievements: end drag, check for tap (click)
+            if (gameState === 'achievements') {
+                const wasDragging = achievementsDragging;
+                achievementsDragging = false;
+
+                if (wasDragging && achievementsDragDistance < 10 && e.changedTouches.length > 0) {
                     const touch = e.changedTouches[0];
                     handleClick(touch.clientX, touch.clientY);
                 }
@@ -3838,11 +4834,15 @@
             releaseJump();
         });
 
-        // Mouse wheel for shop scrolling
+        // Mouse wheel for shop/achievements scrolling
         canvas.addEventListener('wheel', (e) => {
             if (gameState === 'shop') {
                 e.preventDefault();
                 shopScrollY = Math.max(0, Math.min(shopScrollMax, shopScrollY + e.deltaY * 0.5));
+            }
+            if (gameState === 'achievements') {
+                e.preventDefault();
+                achievementsScrollY = Math.max(0, Math.min(achievementsScrollMax, achievementsScrollY + e.deltaY * 0.5));
             }
         }, { passive: false });
 
@@ -3895,27 +4895,49 @@
             const land = lands[selectedLand];
             jetpackSpawnCounter++;
 
-            // Check for jetpack power-up spawn (rare, but guaranteed eventually)
-            // Starts having a chance after 10 spawns, increases each spawn
-            // By spawn 25, it's almost guaranteed if not already spawned
-            const jetpackChance = Math.max(0, (jetpackSpawnCounter - 10) * 0.04); // 0% at 10, 4% at 11, 60% at 25
-            const spawnJetpack = !jetpackActive && getRandom() < jetpackChance;
+            // Check for power-up spawn (rare, but guaranteed eventually)
+            // Starts having a chance after 25 spawns, increases each spawn
+            // By spawn 50, it's almost guaranteed if not already spawned
+            const powerUpChance = Math.max(0, (jetpackSpawnCounter - 25) * 0.02); // 0% at 25, 2% at 26, 50% at 50
+            const noPowerUpActive = !jetpackActive && !trexActive;
+            const shouldSpawnPowerUp = noPowerUpActive && getRandom() < powerUpChance;
 
-            if (spawnJetpack) {
-                // Spawn jetpack power-up
-                const pixels = sprites.jetpack;
-                const scale = ENTITY_SCALE;
-                const h = pixels.length * scale;
-                entities.push({
-                    x: canvas.width + 20,
-                    y: getGroundLevel() - h - BANANA_HEIGHT_OFFSET - 20, // Float a bit higher
-                    pixels: pixels,
-                    scale: scale,
-                    colors: colors.jetpack,
-                    type: 'powerup',
-                    powerupType: 'jetpack',
-                    vx: 0
-                });
+            if (shouldSpawnPowerUp) {
+                // Alternate between jetpack and T-Rex
+                const powerUpType = lastPowerUpType === 'jetpack' ? 'trex' : 'jetpack';
+                lastPowerUpType = powerUpType;
+
+                if (powerUpType === 'jetpack') {
+                    // Spawn jetpack power-up
+                    const pixels = sprites.jetpack;
+                    const scale = ENTITY_SCALE;
+                    const h = pixels.length * scale;
+                    entities.push({
+                        x: canvas.width + 20,
+                        y: getGroundLevel() - h - BANANA_HEIGHT_OFFSET - 20, // Float a bit higher
+                        pixels: pixels,
+                        scale: scale,
+                        colors: colors.jetpack,
+                        type: 'powerup',
+                        powerupType: 'jetpack',
+                        vx: 0
+                    });
+                } else {
+                    // Spawn T-Rex power-up
+                    const pixels = sprites.trexPowerUp;
+                    const scale = ENTITY_SCALE;
+                    const h = pixels.length * scale;
+                    entities.push({
+                        x: canvas.width + 20,
+                        y: getGroundLevel() - h - BANANA_HEIGHT_OFFSET - 20, // Float a bit higher
+                        pixels: pixels,
+                        scale: scale,
+                        colors: colors.trexPowerUp,
+                        type: 'powerup',
+                        powerupType: 'trex',
+                        vx: 0
+                    });
+                }
                 jetpackSpawnCounter = 0; // Reset counter after spawning
                 return; // Don't spawn anything else this cycle
             }
@@ -4046,12 +5068,31 @@
             jetpackPhase = 'none';
             jetpackSpawnCounter = 0;
             powerUpBonusScore = 0;
+            // Reset T-Rex state
+            trexActive = false;
+            trexTimer = 0;
+            // Reset session stats
+            sessionJetpacksCollected = 0;
+            sessionDinoStompsCollected = 0;
+            sessionGameDuration = 0;
             player.y = player.groundY;
             player.vy = 0;
             player.jumping = false;
             jumpBufferTime = 0;
             jumpHeld = false;
             scoreSaved = false;
+            // Reset announcement state
+            clearAnnouncement();
+            highestLevelReached = 0; // Reset highest level for this game
+            // Show "[LAND] STAGE" then "LEVEL ZERO" at game start
+            const land = lands[selectedLand];
+            if (land && land.name) {
+                queueAnnouncements([
+                    `${land.name.toUpperCase()} STAGE`,
+                    'LEVEL ZERO'
+                ]);
+                lastAnnouncedLevel = 0; // Mark level 0 as announced
+            }
             // Calculate first spawn threshold deterministically
             nextSpawnThreshold = 280 + getRandom() * 220;
         }
@@ -4063,6 +5104,10 @@
             gameTime++;
             speed += 0.001; // Gradually increase speed (reduced from 0.002)
             spawnCounter += speed;
+
+            // Update announcements
+            updateAnnouncement();
+            checkLevelAnnouncement();
 
             // Spawn logic (deterministic spacing for multiplayer sync)
             if (spawnCounter > nextSpawnThreshold) {
@@ -4119,6 +5164,36 @@
                     jetpackPhase = 'none';
                     player.jumping = true;
                     player.vy = 2; // Start falling
+                }
+            } else if (trexActive) {
+                // T-Rex mechanics - stay on ground and stomp through obstacles
+                trexTimer--;
+
+                // Keep player locked to ground
+                player.y = player.groundY;
+                player.vy = 0;
+                player.jumping = false;
+
+                // Spawn dust particles occasionally (stomp effect)
+                if (gameTime % 8 === 0) {
+                    for (let i = 0; i < 2; i++) {
+                        particles.push({
+                            x: player.x + PLAYER_WIDTH / 2 + (Math.random() - 0.5) * 40,
+                            y: player.groundY + PLAYER_HEIGHT - 5,
+                            vx: (Math.random() - 0.5) * 3,
+                            vy: -1 - Math.random() * 2,
+                            life: 0,
+                            color: ['#8D6E63', '#A1887F', '#BCAAA4'][Math.floor(Math.random() * 3)], // Brown dust
+                            size: 4 + Math.random() * 4,
+                            maxLife: 20
+                        });
+                    }
+                }
+
+                // Check if T-Rex time is up
+                if (trexTimer <= 0) {
+                    // End T-Rex mode - transform back to normal
+                    trexActive = false;
                 }
             } else if (player.jumping) {
                 // Normal player physics with variable jump height
@@ -4187,7 +5262,8 @@
 
                     if (ent.type === 'obstacle') {
                         // Skip obstacle collision when jetpack is active (player is flying high)
-                        if (jetpackActive) {
+                        // or when T-Rex is active (stomp through obstacles)
+                        if (jetpackActive || trexActive) {
                             continue;
                         }
                         if (gameMode === 'multiplayer') {
@@ -4241,7 +5317,7 @@
                     } else if (ent.type === 'powerup') {
                         // Power-up collection
                         if (gameMode !== 'multiplayer' || localPlayerAlive) {
-                            if (ent.powerupType === 'jetpack' && !jetpackActive) {
+                            if (ent.powerupType === 'jetpack' && !jetpackActive && !trexActive) {
                                 // Activate jetpack!
                                 jetpackActive = true;
                                 jetpackTimer = JETPACK_DURATION;
@@ -4251,9 +5327,34 @@
                                 player.jumping = false; // Cancel any current jump
                                 player.vy = 0;
 
+                                // Track jetpack collection
+                                sessionJetpacksCollected++;
+
                                 // Award bonus points
                                 powerUpBonusScore += 100;
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+
+                                // Announce power-up
+                                triggerAnnouncement('JETPACK');
+
+                                entities.splice(i, 1);
+                            } else if (ent.powerupType === 'trex' && !trexActive && !jetpackActive) {
+                                // Activate T-Rex!
+                                trexActive = true;
+                                trexTimer = TREX_DURATION;
+                                player.jumping = false; // Cancel any current jump
+                                player.y = player.groundY; // Lock to ground
+                                player.vy = 0;
+
+                                // Track dino stomp collection
+                                sessionDinoStompsCollected++;
+
+                                // Award bonus points
+                                powerUpBonusScore += 100;
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+
+                                // Announce power-up
+                                triggerAnnouncement('DINO-STOMP');
 
                                 entities.splice(i, 1);
                             }
@@ -4580,25 +5681,45 @@
                 drawLandButtons(y, false);
                 y += landBtnHeight + compactLgSpacing;
 
-                // Menu buttons - smaller on compact screens
-                const btnWidth = Math.min(isCompact ? 200 : 240, canvas.width - DS.spacing.lg * 2);
+                // Two-column menu layout
+                // Left: Solo Play, Multiplayer | Right: Shop, Achievements, Leaderboard
+                const totalWidth = Math.min(isCompact ? 400 : 500, canvas.width - DS.spacing.lg * 2);
+                const columnGap = isCompact ? DS.spacing.sm : DS.spacing.md;
+                const columnWidth = (totalWidth - columnGap) / 2;
                 const btnHeight = isCompact ? Math.max(40, DS.button.height() * 0.8) : DS.button.height();
                 const gap = isCompact ? DS.spacing.sm : DS.spacing.md;
+                const leftX = centerX - totalWidth / 2 + columnWidth / 2;
+                const rightX = centerX + columnGap / 2 + columnWidth / 2;
 
-                const soloBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'SOLO PLAY', { action: 'solo', primary: true });
+                // Section labels
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('tiny', 'bold');
+                ctx.textAlign = 'center';
+                ctx.fillText('PLAY', leftX, y);
+                ctx.fillText('EXPLORE', rightX, y);
+                y += DS.fontSize('tiny') + DS.spacing.xs;
+
+                // Left column - Play modes
+                const leftColumnY = y;
+                const soloBounds = drawStyledButton(leftX, leftColumnY, columnWidth, btnHeight, 'SOLO', { action: 'solo', primary: true });
                 addClickable(soloBounds);
-                y += btnHeight + gap;
 
-                const multiBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'MULTIPLAYER', { action: 'multiplayer', primary: false });
+                const multiBounds = drawStyledButton(leftX, leftColumnY + btnHeight + gap, columnWidth, btnHeight, 'MULTI', { action: 'multiplayer', primary: false });
                 addClickable(multiBounds);
-                y += btnHeight + gap;
 
-                const leaderBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'LEADERBOARD', { action: 'leaderboard', primary: false });
-                addClickable(leaderBounds);
-                y += btnHeight + gap;
-
-                const shopBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'SHOP', { action: 'shop', primary: false });
+                // Right column - Explore options
+                const rightColumnY = y;
+                const shopBounds = drawStyledButton(rightX, rightColumnY, columnWidth, btnHeight, 'SHOP', { action: 'shop', primary: false });
                 addClickable(shopBounds);
+
+                const achieveBounds = drawStyledButton(rightX, rightColumnY + btnHeight + gap, columnWidth, btnHeight, 'ACHIEVE', { action: 'achievements', primary: false });
+                addClickable(achieveBounds);
+
+                const leaderBounds = drawStyledButton(rightX, rightColumnY + (btnHeight + gap) * 2, columnWidth, btnHeight, 'RANK', { action: 'leaderboard', primary: false });
+                addClickable(leaderBounds);
+
+                // Advance y to bottom of taller column
+                y += Math.max((btnHeight + gap) * 2, (btnHeight + gap) * 3);
 
                 // Instructions - only show if there's room
                 if (canvas.height - y > 60) {
@@ -4908,6 +6029,165 @@
                     ctx.fill();
                 }
 
+            } else if (gameState === 'achievements') {
+                // ============================================
+                // ACHIEVEMENTS PAGE
+                // ============================================
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Header with back button
+                const header = drawHeader('ACHIEVEMENTS', true);
+                addClickable(header.backBounds);
+
+                const centerX = canvas.width / 2;
+                let contentY = header.height + DS.spacing.md;
+
+                // Achievement stats summary
+                const unlockedCount = unlockedAchievements.length;
+                const totalCount = Object.keys(ACHIEVEMENTS).length;
+                const totalBananasEarned = unlockedAchievements.reduce((sum, id) => {
+                    return sum + (ACHIEVEMENTS[id]?.reward || 0);
+                }, 0);
+
+                const summaryWidth = Math.min(320, canvas.width - DS.spacing.lg * 2);
+                const summaryHeight = DS.fontSize('body') * 2 + DS.spacing.lg;
+                drawPanel(centerX - summaryWidth / 2, contentY, summaryWidth, summaryHeight);
+
+                ctx.textAlign = 'center';
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('body', 'bold');
+                ctx.fillText(`${unlockedCount} / ${totalCount} Unlocked`, centerX, contentY + DS.spacing.md + DS.fontSize('body') / 2);
+
+                ctx.fillStyle = DS.colors.success;
+                ctx.font = DS.font('small');
+                ctx.fillText(`+${totalBananasEarned} bananas earned from achievements`, centerX, contentY + DS.spacing.md + DS.fontSize('body') + DS.spacing.sm);
+                contentY += summaryHeight + DS.spacing.md;
+
+                // Scrollable achievements list
+                const scrollAreaTop = contentY;
+                const scrollAreaBottom = canvas.height - DS.spacing.md;
+                const scrollAreaHeight = scrollAreaBottom - scrollAreaTop;
+
+                // Calculate total content height
+                const rowHeight = 60;
+                const sectionHeaderHeight = 30;
+                let totalContentHeight = 0;
+
+                // Count content height by category
+                const sortedCategories = Object.entries(ACHIEVEMENT_CATEGORIES)
+                    .sort((a, b) => a[1].order - b[1].order);
+
+                for (const [categoryId, category] of sortedCategories) {
+                    const categoryAchievements = Object.entries(ACHIEVEMENTS)
+                        .filter(([id, ach]) => ach.category === categoryId);
+                    if (categoryAchievements.length > 0) {
+                        totalContentHeight += sectionHeaderHeight + categoryAchievements.length * rowHeight;
+                    }
+                }
+
+                achievementsScrollMax = Math.max(0, totalContentHeight - scrollAreaHeight + DS.spacing.lg);
+
+                // Clamp scroll
+                achievementsScrollY = Math.max(0, Math.min(achievementsScrollMax, achievementsScrollY));
+
+                // Create clipping region for scroll area
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, scrollAreaTop, canvas.width, scrollAreaHeight);
+                ctx.clip();
+
+                // Draw achievements by category
+                let drawY = scrollAreaTop - achievementsScrollY;
+                const cardPadding = DS.spacing.sm;
+                const cardWidth = Math.min(450, canvas.width - DS.spacing.lg * 2);
+
+                for (const [categoryId, category] of sortedCategories) {
+                    const categoryAchievements = Object.entries(ACHIEVEMENTS)
+                        .filter(([id, ach]) => ach.category === categoryId);
+
+                    if (categoryAchievements.length === 0) continue;
+
+                    // Category header
+                    if (drawY + sectionHeaderHeight > scrollAreaTop - 50 && drawY < scrollAreaBottom + 50) {
+                        ctx.fillStyle = DS.colors.textMuted;
+                        ctx.font = DS.font('small', 'bold');
+                        ctx.textAlign = 'left';
+                        ctx.fillText(category.name.toUpperCase(), centerX - cardWidth / 2, drawY + sectionHeaderHeight / 2 + DS.fontSize('small') / 3);
+                    }
+                    drawY += sectionHeaderHeight;
+
+                    // Draw each achievement
+                    for (const [achId, achievement] of categoryAchievements) {
+                        if (drawY + rowHeight > scrollAreaTop - 50 && drawY < scrollAreaBottom + 50) {
+                            const isUnlocked = unlockedAchievements.includes(achId);
+                            const cardX = centerX - cardWidth / 2;
+                            const cardY = drawY;
+
+                            // Card background
+                            ctx.fillStyle = isUnlocked ? 'rgba(76, 175, 80, 0.15)' : DS.colors.bgPanel;
+                            ctx.beginPath();
+                            ctx.roundRect(cardX, cardY, cardWidth, rowHeight - 4, 6);
+                            ctx.fill();
+
+                            // Left side - status indicator
+                            const indicatorX = cardX + 20;
+                            const indicatorY = cardY + (rowHeight - 4) / 2;
+
+                            if (isUnlocked) {
+                                ctx.fillStyle = DS.colors.success;
+                                ctx.font = 'bold 18px monospace';
+                                ctx.textAlign = 'center';
+                                ctx.fillText('✓', indicatorX, indicatorY + 6);
+                            } else {
+                                ctx.strokeStyle = DS.colors.textMuted;
+                                ctx.lineWidth = 2;
+                                ctx.beginPath();
+                                ctx.arc(indicatorX, indicatorY, 10, 0, Math.PI * 2);
+                                ctx.stroke();
+                            }
+
+                            // Achievement name
+                            ctx.fillStyle = isUnlocked ? DS.colors.white : DS.colors.textSecondary;
+                            ctx.font = DS.font('body', 'bold');
+                            ctx.textAlign = 'left';
+                            ctx.fillText(achievement.name, cardX + 45, cardY + 22);
+
+                            // Achievement description
+                            ctx.fillStyle = isUnlocked ? DS.colors.textSecondary : DS.colors.textMuted;
+                            ctx.font = DS.font('small');
+                            ctx.fillText(achievement.description, cardX + 45, cardY + 42);
+
+                            // Reward on right side
+                            ctx.fillStyle = isUnlocked ? DS.colors.primary : DS.colors.textMuted;
+                            ctx.font = DS.font('body', 'bold');
+                            ctx.textAlign = 'right';
+                            ctx.fillText(`+${achievement.reward}`, cardX + cardWidth - 15, cardY + (rowHeight - 4) / 2 + 6);
+                        }
+                        drawY += rowHeight;
+                    }
+                }
+
+                ctx.restore();
+
+                // Draw scroll indicator if needed
+                if (achievementsScrollMax > 0) {
+                    const scrollTrackHeight = scrollAreaHeight - 20;
+                    const scrollThumbHeight = Math.max(30, scrollTrackHeight * (scrollAreaHeight / (totalContentHeight + scrollAreaHeight)));
+                    const scrollThumbY = scrollAreaTop + 10 + (scrollTrackHeight - scrollThumbHeight) * (achievementsScrollY / achievementsScrollMax);
+
+                    // Track
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                    ctx.fillRect(canvas.width - 8, scrollAreaTop + 10, 4, scrollTrackHeight);
+
+                    // Thumb
+                    ctx.fillStyle = DS.colors.primary;
+                    ctx.beginPath();
+                    ctx.roundRect(canvas.width - 8, scrollThumbY, 4, scrollThumbHeight, 2);
+                    ctx.fill();
+                }
+
             } else if (gameState === 'multiplayer-menu') {
                 // Multiplayer menu - Create or Join options
                 resetClickables();
@@ -5161,6 +6441,9 @@
                 }
 
             } else if (gameState === 'playing') {
+                // Draw background announcement (behind everything)
+                drawAnnouncement();
+
                 // Draw entities first (behind players) - with accessibility outlines
                 entities.forEach(ent => {
                     if (ent.type === 'obstacle') {
@@ -5251,14 +6534,27 @@
                         });
                 } else {
                     // Solo mode - draw single player with skin colors and accessibility outline
-                    const soloPlayerColors = getSkinColors(land.runnerColors, selectedSkin);
-                    // Apply transparency for ghost skin
-                    const soloSkin = SKINS[selectedSkin];
-                    if (soloSkin?.transparency) {
-                        ctx.globalAlpha = soloSkin.transparency;
+                    if (trexActive) {
+                        // Draw T-Rex sprite when transformed
+                        // T-Rex is 48px wide, player is 32px wide - center the T-Rex on player position
+                        const trexWidth = sprites.trex[0].length; // 48
+                        const trexHeight = sprites.trex.length; // 48
+                        const playerWidth = 32;
+                        const trexX = player.x - ((trexWidth - playerWidth) / 2) * player.scale;
+                        // Align T-Rex feet with where player's feet would be
+                        const trexY = player.groundY + (48 * player.scale) - (trexHeight * player.scale);
+                        drawSpriteWithOutline(ctx, trexX, trexY, sprites.trex, player.scale, colors.trex, DS.colors.outlinePlayer, 1);
+                    } else {
+                        // Normal player
+                        const soloPlayerColors = getSkinColors(land.runnerColors, selectedSkin);
+                        // Apply transparency for ghost skin
+                        const soloSkin = SKINS[selectedSkin];
+                        if (soloSkin?.transparency) {
+                            ctx.globalAlpha = soloSkin.transparency;
+                        }
+                        drawSpriteWithOutlinePlayer(ctx, player.x, player.y, land.runner, player.scale, soloPlayerColors, DS.colors.outlinePlayer, 1, soloSkin);
+                        ctx.globalAlpha = 1;
                     }
-                    drawSpriteWithOutlinePlayer(ctx, player.x, player.y, land.runner, player.scale, soloPlayerColors, DS.colors.outlinePlayer, 1, soloSkin);
-                    ctx.globalAlpha = 1;
                 }
 
                 // Draw particle effects (behind UI, after player)
@@ -5291,6 +6587,30 @@
                     ctx.font = 'bold 14px monospace';
                     ctx.textAlign = 'left';
                     ctx.fillText('⏱', timerX, timerY + 5);
+
+                    // Timer countdown
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 16px monospace';
+                    ctx.fillText(`${secondsLeft}s`, timerX + 20, timerY + 5);
+                }
+
+                // Draw T-Rex timer if active (right of player)
+                if (trexActive) {
+                    const timerX = player.x + PLAYER_WIDTH + 50; // Further right for larger T-Rex
+                    const timerY = player.groundY - 20;
+                    const secondsLeft = Math.ceil(trexTimer / 60);
+
+                    // Timer background pill
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.beginPath();
+                    ctx.roundRect(timerX - 5, timerY - 12, 55, 24, 12);
+                    ctx.fill();
+
+                    // Dino icon
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.font = 'bold 14px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('🦖', timerX, timerY + 5);
 
                     // Timer countdown
                     ctx.fillStyle = '#FFFFFF';
