@@ -5680,6 +5680,9 @@
                     // Exit T-Rex and jump out
                     trexActive = false;
                     trexTimer = 0;
+                    dinoShakeTimer = 0;
+                    dinoFootprints = []; // Clear footprints
+                    dinoFootTimer = 0;
                     player.vy = getJumpVelocity();
                     player.jumping = true;
                     jumpHeld = true;
