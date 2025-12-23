@@ -45,7 +45,13 @@ export const colors = {
 
     // Game-specific
     locked: '#444444',       // Locked items
-    unlocked: '#4CAF50'      // Unlocked items
+    unlocked: '#4CAF50',     // Unlocked items
+
+    // Accessibility outlines for sprite visibility
+    outlineObstacle: '#B71C1C',    // Dark red - danger
+    outlinePlayer: '#FFFFFF',       // White - player stands out
+    outlinePlayerAlt: '#000000',    // Black alt for light backgrounds
+    outlineCollectible: '#2E7D32'   // Green - good/reward
 };
 
 // ============================================
