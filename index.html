@@ -459,16 +459,33 @@
         async function loadUserProfile() {
             if (!supabaseClient || !currentUser) return;
 
-            const { data, error } = await supabaseClient
-                .from('profiles')
-                .select('*')
-                .eq('id', currentUser.id)
-                .single();
+            try {
+                const { data, error } = await supabaseClient
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', currentUser.id)
+                    .single();
 
-            if (data) {
-                userProfile = data;
+                if (error) {
+                    console.error('Error loading profile:', error);
+                    // Create a minimal profile from auth metadata if DB query fails
+                    userProfile = {
+                        id: currentUser.id,
+                        username: currentUser.user_metadata?.username || 'Player'
+                    };
+                } else if (data) {
+                    userProfile = data;
+                }
+
                 // Also load skins and achievements
                 await loadPlayerProgress();
+            } catch (err) {
+                console.error('LoadUserProfile error:', err);
+                // Fallback profile
+                userProfile = {
+                    id: currentUser.id,
+                    username: currentUser.user_metadata?.username || 'Player'
+                };
             }
         }
 
@@ -528,11 +545,12 @@
             }
 
             // Auto-login after signup (since email confirmation is disabled)
-            if (data.session) {
+            if (data.session && data.user) {
                 // Session already exists, user is logged in
                 // Set user immediately (don't wait for onAuthStateChange)
                 currentUser = data.user;
-                await loadUserProfile();
+                // Set a basic profile immediately (the upsert above created it)
+                userProfile = { id: data.user.id, username: username };
                 updateUserDisplay();
                 closeAuthModal();
                 return true;
@@ -551,30 +569,38 @@
 
             const email = usernameToEmail(username);
 
-            const { data, error } = await supabaseClient.auth.signInWithPassword({
-                email,
-                password
-            });
+            try {
+                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email,
+                    password
+                });
 
-            if (error) {
-                // Make error messages more user-friendly
-                if (error.message.includes('Invalid login')) {
-                    showAuthError('Invalid username or password');
-                } else {
-                    showAuthError(error.message);
+                if (error) {
+                    // Make error messages more user-friendly
+                    if (error.message.includes('Invalid login')) {
+                        showAuthError('Invalid username or password');
+                    } else {
+                        showAuthError(error.message);
+                    }
+                    return false;
                 }
+
+                // Set user immediately (don't wait for onAuthStateChange)
+                if (data && data.user) {
+                    currentUser = data.user;
+                    await loadUserProfile();
+                    updateUserDisplay();
+                    closeAuthModal();
+                    return true;
+                } else {
+                    showAuthError('Login failed - please try again');
+                    return false;
+                }
+            } catch (err) {
+                console.error('SignIn error:', err);
+                showAuthError('Login failed - please try again');
                 return false;
             }
-
-            // Set user immediately (don't wait for onAuthStateChange)
-            if (data.user) {
-                currentUser = data.user;
-                await loadUserProfile();
-                updateUserDisplay();
-            }
-
-            closeAuthModal();
-            return true;
         }
 
         async function logout() {
