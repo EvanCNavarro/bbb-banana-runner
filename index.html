@@ -1908,6 +1908,25 @@
         const JUMP_RELEASE_MULTIPLIER = 0.4;  // Velocity multiplier when releasing early
         const FALL_GRAVITY_MULTIPLIER = 1.5;  // Extra gravity when falling or released
 
+        // Dynamic jump velocity based on screen height
+        // Ensures player doesn't bonk head on ceiling in landscape mobile
+        const BASE_JUMP_VELOCITY = -18;
+        const MIN_CEILING_MARGIN = 30;  // Minimum space from top of screen
+
+        function getJumpVelocity() {
+            // Calculate available jump space (from ground to ceiling margin)
+            const groundLevel = getGroundLevel();
+            const availableHeight = groundLevel - MIN_CEILING_MARGIN - PLAYER_HEIGHT;
+
+            // For a standard 600px height, available is about 500px
+            // Scale jump velocity if screen is shorter
+            const standardHeight = 500;
+            const heightRatio = Math.min(1, availableHeight / standardHeight);
+
+            // Scale velocity (sqrt for more natural feel - half height = ~70% velocity)
+            return BASE_JUMP_VELOCITY * Math.sqrt(heightRatio);
+        }
+
         // Land selection buttons (will be calculated in draw)
         let landButtons = [];
         // Menu action buttons (Solo, Multiplayer, Leaderboard, Login)
@@ -2007,8 +2026,8 @@
         function jump() {
             if (gameState === 'playing') {
                 if (!player.jumping) {
-                    // On ground - jump immediately
-                    player.vy = -18;
+                    // On ground - jump immediately with screen-scaled velocity
+                    player.vy = getJumpVelocity();
                     player.jumping = true;
                     jumpHeld = true;
                     jumpBufferTime = 0;
@@ -2176,6 +2195,13 @@
                 player.vy += gravity;
                 player.y += player.vy;
 
+                // Ceiling collision - prevent going above minimum margin
+                if (player.y < MIN_CEILING_MARGIN) {
+                    player.y = MIN_CEILING_MARGIN;
+                    player.vy = 0;  // Stop upward momentum, start falling
+                }
+
+                // Ground collision
                 if (player.y >= player.groundY) {
                     player.y = player.groundY;
                     player.jumping = false;
@@ -2184,7 +2210,7 @@
 
                     // Check for buffered jump - if player pressed jump recently, jump again
                     if (jumpBufferTime > 0 && (Date.now() - jumpBufferTime) < JUMP_BUFFER_MS) {
-                        player.vy = -18;
+                        player.vy = getJumpVelocity();
                         player.jumping = true;
                         jumpHeld = true;  // Assume held for buffered jump
                         jumpBufferTime = 0;
