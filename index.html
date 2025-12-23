@@ -1208,7 +1208,7 @@
         async function createNewLobby() {
             if (!supabaseClient || !currentUser) return;
 
-            const code = generateLobbyCode();
+            const code = await generateLobbyCode();
             const { data, error } = await supabaseClient
                 .from('game_lobbies')
                 .insert({
@@ -1232,8 +1232,130 @@
             gameState = 'lobby';
         }
 
-        function generateLobbyCode() {
-            return Math.random().toString(36).substring(2, 8).toUpperCase();
+        // ============================================
+        // MEMORABLE LOBBY WORDS (6 letters, child-friendly)
+        // ============================================
+        const LOBBY_WORDS = [
+            // Animals
+            'MONKEY', 'BANANA', 'TURTLE', 'RABBIT', 'KITTEN', 'PUPPY', 'DRAGON', 'PARROT',
+            'PANDA', 'TIGER', 'LION', 'ZEBRA', 'GOPHER', 'BADGER', 'BEAVER', 'FALCON',
+            'CONDOR', 'JAGUAR', 'COUGAR', 'DONKEY', 'LIZARD', 'IGUANA', 'SALMON', 'SHRIMP',
+            'OYSTER', 'HERMIT', 'CANARY', 'TOUCAN', 'SPIDER', 'BEETLE', 'CICADA', 'MANTIS',
+            'WALRUS', 'GIBBON', 'BABOON', 'FERRET', 'WEASEL', 'POSSUM', 'ALPACA', 'VICUNA',
+            // Food & Drinks
+            'CHEESE', 'COOKIE', 'MUFFIN', 'WAFFLE', 'NOODLE', 'PICKLE', 'TOMATO', 'POTATO',
+            'CARROT', 'CELERY', 'PEPPER', 'RADISH', 'TURNIP', 'SQUASH', 'CHERRY', 'ORANGE',
+            'LEMON', 'MANGO', 'PAPAYA', 'GRAPES', 'MELON', 'APPLES', 'COFFEE', 'BUTTER',
+            'YOGURT', 'PASTRY', 'DONUT', 'BAGEL', 'PRETZE', 'CEREAL', 'OATMEA', 'TACOS',
+            'NACHOS', 'FUDGE', 'TOFFEE', 'SUNDAE', 'SORBET', 'GELATO', 'MOUSSE', 'TRUFFLE',
+            // Nature & Weather
+            'FOREST', 'GARDEN', 'MEADOW', 'VALLEY', 'CANYON', 'ISLAND', 'LAGOON', 'STREAM',
+            'BREEZE', 'SUMMER', 'WINTER', 'SPRING', 'AUTUMN', 'SUNSET', 'CLOUDS', 'STORMY',
+            'SNOWY', 'FROSTY', 'MISTY', 'FLOWER', 'POLLEN', 'PEBBLE', 'GRAVEL', 'BAMBOO',
+            'WILLOW', 'MAPLE', 'SPRUCE', 'JUNGLE', 'DESERT', 'TUNDRA', 'ARCTIC', 'TROPIC',
+            'CORAL', 'OYSTER', 'FOSSIL', 'MARBLE', 'QUARTZ', 'COPPER', 'SILVER', 'GOLDEN',
+            // Colors & Patterns
+            'PURPLE', 'YELLOW', 'ORANGE', 'INDIGO', 'VIOLET', 'MAROON', 'SALMON', 'CORAL',
+            'GOLDEN', 'SILVER', 'BRONZE', 'STRIPE', 'POLKA', 'ZIGZAG', 'SWIRLY', 'DOTTED',
+            'BRIGHT', 'GLOSSY', 'SHINY', 'SPARKL', 'GLITTE', 'PASTEL', 'NEON',
+            // Objects & Things
+            'ROCKET', 'PLANET', 'METEOR', 'COMET', 'GALAXY', 'CASTLE', 'PALACE', 'THRONE',
+            'CROWN', 'SHIELD', 'SWORD', 'HELMET', 'ARMOR', 'BANNER', 'TROPHY', 'MEDAL',
+            'RIBBON', 'BUTTON', 'ZIPPER', 'POCKET', 'BASKET', 'BUCKET', 'MIRROR', 'PILLOW',
+            'BLANKE', 'CANDLE', 'LANTERN', 'BEACON', 'BRIDGE', 'TUNNEL', 'TOWERS', 'TEMPLE',
+            'MARKET', 'BAKERY', 'CIRCUS', 'ARCADE', 'MUSEUM', 'STUDIO', 'GARAGE', 'CABINS',
+            // Actions & Adjectives
+            'JUMPIN', 'RUNNIN', 'DANCIN', 'FLYING', 'SWIMMI', 'BOUNCI', 'ZOOMIN', 'RACIN',
+            'SMILIN', 'LAUGHI', 'HAPPY', 'JOLLY', 'MERRY', 'CHEERF', 'PLAYFU', 'CLEVER',
+            'MIGHTY', 'SPEEDY', 'SNAPPY', 'GROOVY', 'FUNKY', 'WACKY', 'ZANY', 'SILLY',
+            'GOOFY', 'FLUFFY', 'FUZZY', 'CRISPY', 'CRUNCHY', 'SQUISHY', 'BOUNCY', 'WIGGLY',
+            // Fantasy & Magic
+            'WIZARD', 'FAERIE', 'SPRITE', 'GOBLIN', 'TROLL', 'GNOME', 'PIXIE', 'MERMAID',
+            'UNICOR', 'PHOENIX', 'GRIFFIN', 'KRAKEN', 'SPIRIT', 'MAGICA', 'MYSTIC', 'LEGEND',
+            'MYTHIC', 'COSMIC', 'ASTRAL', 'DREAMM', 'FANTSY', 'WONDER', 'MARVEL', 'ENIGMA',
+            // Music & Sound
+            'MELODY', 'RHYTHM', 'JINGLE', 'CHIMES', 'WHISPE', 'ECHOES', 'STEREO', 'TEMPO',
+            'GUITAR', 'VIOLIN', 'FLUTE', 'DRUMS', 'PIANO', 'TRUMPE', 'CYMBAL', 'UKULEL',
+            // Sports & Games
+            'SOCCER', 'TENNIS', 'HOCKEY', 'BASKET', 'VOLLEY', 'RACKET', 'TROPHY', 'ARCADE',
+            'PUZZLE', 'RIDDLE', 'TRIVIA', 'BINGO', 'CHESS', 'DOMINO', 'MARBLE', 'JIGSAW',
+            // Places & Geography
+            'ALASKA', 'HAWAII', 'LONDON', 'PARIS', 'TOKYO', 'SYDNEY', 'DENVER', 'AUSTIN',
+            'BOSTON', 'DALLAS', 'MIAMI', 'VEGAS', 'SEATTLE', 'CHICAGO', 'BERLIN', 'MADRID',
+            // Space & Science
+            'NEBULA', 'QUASAR', 'PULSAR', 'PHOTON', 'PROTON', 'NEUTRON', 'PLASMA', 'ATOMIC',
+            'CARBON', 'OXYGEN', 'HELIUM', 'NEON', 'ARGON', 'XENON', 'RADON', 'KRYPTON',
+            // Misc Fun Words
+            'DOODLE', 'NOODLE', 'GIGGLE', 'WIGGLE', 'JIGGLE', 'BUBBLE', 'PEBBLE', 'NIBBLE',
+            'WOBBLE', 'COBBLE', 'GOBBLE', 'HOBBIT', 'WADDLE', 'PADDLE', 'SADDLE', 'FIDDLE',
+            'RIDDLE', 'MIDDLE', 'PUDDLE', 'CUDDLE', 'MUDDLE', 'HUDDLE', 'BUMBLE', 'HUMBLE',
+            'JUMBLE', 'MUMBLE', 'RUMBLE', 'TUMBLE', 'FUMBLE', 'CRUMBL', 'GRUMBL', 'STUMBL',
+            'JUNGLE', 'BUNGLE', 'TANGLE', 'MANGLE', 'DANGLE', 'JANGLE', 'WRANGLE', 'SPANGLE',
+            'TWINKL', 'SPRINKL', 'CRINKL', 'WRINKL', 'TINKLE', 'JINGLE', 'MINGLE', 'SINGLE',
+            'SIMPLE', 'DIMPLE', 'PIMPLE', 'RIPPLE', 'NIPPLE', 'TIPPLE', 'SUPPLE', 'PURPLE',
+            'TURTLE', 'HURTLE', 'MYRTLE', 'RUSTLE', 'BUSTLE', 'HUSTLE', 'MUSCLE', 'CASTLE',
+            'HASSLE', 'TASSEL', 'VESSEL', 'NESTLE', 'WRESTL', 'THISTLE', 'WHISTLE', 'BRISTLE',
+            // More Animals
+            'BEAGLE', 'POODLE', 'COLLIE', 'HUSKY', 'CORGI', 'DACHSH', 'TERRIE', 'SETTER',
+            'HERON', 'CRANE', 'STORK', 'EGRET', 'PELICA', 'SEAGUL', 'PIGEON', 'SPAROW',
+            'FINCH', 'ROBIN', 'THRUSH', 'WREN', 'RAVEN', 'MAGPIE', 'BLUEJA', 'CARDIN',
+            'CONDOR', 'VULTUR', 'OSPREY', 'KESTRL', 'PEREGR', 'MERLIN', 'HOBBY',
+            // Food continued
+            'BISCUI', 'CRUMPE', 'SCONE', 'CROISS', 'DANISH', 'ECLAIR', 'CANOLI', 'STRUDE',
+            'COBBLE', 'CRISP', 'TART', 'TORTE', 'GATEAU', 'FONDUO', 'RACLTTE', 'QUICHE',
+            'BISQUE', 'CHOWDE', 'GUMBO', 'JAMBAL', 'PAELLA', 'RISOTT', 'GNOCCHI', 'RAVIOL',
+            'TORTLL', 'BURRIT', 'FAJITA', 'TAMALE', 'ENCHIA', 'QUESAD', 'SALSA', 'GUACAM',
+            // Ocean & Beach
+            'ANCHOR', 'SAILOR', 'PIRATE', 'CAPTAI', 'VOYAGE', 'HARBOR', 'MARINA', 'LIGHTHOUSE',
+            'BEACON', 'BUOY', 'KAYAK', 'CANOE', 'PADDLE', 'SURFIN', 'DIVING', 'SNORKL',
+            'SCUBA', 'REEF', 'ATOLL', 'SHOAL', 'SANDBA', 'DRIFTW', 'SHELLS', 'CONCH',
+            // Adventure
+            'QUEST', 'SAFARI', 'VOYAGE', 'JOURNY', 'ADVENT', 'EXPLOR', 'DISCOV', 'TREASR',
+            'BOUNTY', 'REWARD', 'SECRET', 'HIDDEN', 'MYSTIC', 'ENIGMA', 'PUZZLE', 'RIDDLE',
+            // Positive Words
+            'KINDLY', 'GENTLE', 'TENDER', 'CARING', 'LOVING', 'GIVING', 'HELPFUL', 'HONEST',
+            'TRUSTY', 'LOYAL', 'BRAVE', 'BOLD', 'DARING', 'FIERCE', 'STRONG', 'MIGHTY',
+            'HEROIC', 'NOBLE', 'ROYAL', 'REGAL', 'GRAND', 'SUPERB', 'DIVINE', 'BLISSS',
+            // Technology
+            'ROBOT', 'CYBORG', 'ANDROID', 'GADGET', 'WIDGET', 'DEVICE', 'GIZMO', 'TECHNO',
+            'DIGITAL', 'BINARY', 'PIXEL', 'VECTOR', 'MATRIX', 'CIPHER', 'CRYPTO', 'QUANTUM',
+            // Weather continued
+            'BLIZZA', 'FLURRY', 'DRIZZL', 'SHOWRS', 'THUNDR', 'LIGHTN', 'TORNAD', 'CYCLONE',
+            'TYPHOO', 'MONSOO', 'SQUALL', 'GUST', 'BREEZE', 'ZEPHYR', 'TRADES', 'JETSTR',
+            // Buildings
+            'CABIN', 'LODGE', 'CHALET', 'VILLA', 'MANOR', 'ESTATE', 'PALACE', 'CASTLE',
+            'TOWER', 'TURRET', 'SPIRE', 'STEEPL', 'DOME', 'VAULT', 'CRYPT', 'CHAPEL',
+            'ABBEY', 'PRIORY', 'CLOISTER', 'SHRINE', 'TEMPLE', 'PAGODA', 'MOSQUE', 'CATHEDRAL'
+        ].filter(w => w.length === 6); // Ensure all are exactly 6 letters
+
+        /**
+         * Generate a unique lobby code from memorable words
+         * Checks database to ensure code isn't already in use
+         */
+        async function generateLobbyCode() {
+            // Shuffle and try words until we find an unused one
+            const shuffled = [...LOBBY_WORDS].sort(() => Math.random() - 0.5);
+
+            for (const word of shuffled.slice(0, 20)) { // Try up to 20 words
+                if (supabaseClient) {
+                    const { data: existing } = await supabaseClient
+                        .from('game_lobbies')
+                        .select('code')
+                        .eq('code', word)
+                        .eq('status', 'waiting')
+                        .single();
+
+                    if (!existing) {
+                        return word; // Word is available
+                    }
+                } else {
+                    return word; // No database, just return first word
+                }
+            }
+
+            // Fallback: combine two short words or use random
+            const fallback = LOBBY_WORDS[Math.floor(Math.random() * LOBBY_WORDS.length)];
+            return fallback || Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
         async function joinLobbyWithCode() {
