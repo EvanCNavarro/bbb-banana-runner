@@ -1001,6 +1001,10 @@
                             allPlayersStates[data.playerId].score = data.score;
                             allPlayersStates[data.playerId].bananas = data.bananas;
                             allPlayersStates[data.playerId].isAlive = data.isAlive;
+                            // Debug: log received state occasionally
+                            if (Math.random() < 0.02) { // ~2% of updates to reduce spam
+                                console.log(`[Received] ${allPlayersStates[data.playerId].username}: score=${data.score}, bananas=${data.bananas}, alive=${data.isAlive}`);
+                            }
                         }
 
                         // Check if all players are dead
@@ -2658,6 +2662,10 @@
                         if (gameMode !== 'multiplayer' || localPlayerAlive) {
                             bananasCollected++;
                             entities.splice(i, 1);
+                            // Debug log for multiplayer
+                            if (gameMode === 'multiplayer') {
+                                console.log(`[Banana] Collected! Total: ${bananasCollected}, Score: ${score}`);
+                            }
                         }
                     }
                 }
@@ -3308,7 +3316,7 @@
                         ctx.fillText('👻 SPECTATING - Waiting for others to finish...', canvas.width / 2, 26);
                     }
 
-                    // Show all player scores on the right
+                    // Show all player scores on the right (with bananas)
                     ctx.textAlign = 'right';
                     let scoreY = 35;
                     Object.values(allPlayersStates)
@@ -3318,7 +3326,8 @@
                             ctx.fillStyle = isLocal ? DS.colors.primary : (p.isAlive ? '#333' : '#888');
                             ctx.font = `${isLocal ? 'bold ' : ''}14px monospace`;
                             const status = p.isAlive ? '' : ' 👻';
-                            ctx.fillText(`${p.username}: ${p.score}${status}`, canvas.width - 20, scoreY);
+                            // Show score and banana count
+                            ctx.fillText(`${p.username}: ${p.score} (🍌${p.bananas || 0})${status}`, canvas.width - 20, scoreY);
                             scoreY += 20;
                         });
                 } else {
