@@ -738,7 +738,13 @@
         // SCORE PERSISTENCE
         // ============================================
         async function saveScore(finalScore, bananas, landPlayed, isMultiplayer = false, didWin = false) {
-            if (!supabaseClient || !currentUser) return;
+            console.log('[SaveScore] Called with:', { finalScore, bananas, landPlayed, isMultiplayer, didWin });
+            console.log('[SaveScore] User profile:', userProfile ? { id: userProfile.id, username: userProfile.username, high_score: userProfile.high_score } : 'null');
+
+            if (!supabaseClient || !currentUser) {
+                console.log('[SaveScore] Aborting - no supabase or user');
+                return;
+            }
 
             // Calculate game duration in seconds (gameTime is in frames at 60fps)
             const gameDurationSeconds = Math.floor(gameTime / 60);
@@ -800,8 +806,14 @@
                 }
 
                 // Update high score if this is a new personal best
+                console.log('[SaveScore] Checking high score:', {
+                    finalScore: finalScore,
+                    currentHighScore: userProfile.high_score,
+                    isNewBest: finalScore > (userProfile.high_score || 0)
+                });
                 if (finalScore > (userProfile.high_score || 0)) {
                     updates.high_score = finalScore;
+                    console.log('[SaveScore] NEW HIGH SCORE! Setting to:', finalScore);
                 }
 
                 // Update highest level reached if this game reached higher
@@ -4384,6 +4396,17 @@
         let moneyBonusAccumulated = 0; // Extra points earned from 2x multiplier
         const MONEY_DURATION = 600; // 10 seconds
 
+        // Helper function to add bonus points (doubles when money is active)
+        function addBonusPoints(points, x, y, showText = true) {
+            powerUpBonusScore += points;
+            if (moneyActive) {
+                moneyBonusAccumulated += points; // Double by adding extra
+                if (showText) spawnFloatingText(x, y, `+${points * 2} (2X!)`);
+            } else {
+                if (showText) spawnFloatingText(x, y, `+${points}`);
+            }
+        }
+
         // Laser - disco ball destruction beams (5 seconds)
         let laserActive = false;
         let laserTimer = 0;
@@ -6227,8 +6250,7 @@
                             // If beam angle matches obstacle angle (with tolerance), destroy it
                             if (angleDiff < 0.25) { // ~15 degrees tolerance
                                 entities.splice(i, 1);
-                                powerUpBonusScore += 15;
-                                spawnFloatingText(entCenterX, entCenterY - 20, '+15');
+                                addBonusPoints(15, entCenterX, entCenterY - 20);
                                 laserDestroyed = true;
                                 break; // Exit beam loop
                             }
@@ -6271,14 +6293,12 @@
                         if (protection === 'star') {
                             // Star: Destroy obstacle on contact
                             entities.splice(i, 1);
-                            powerUpBonusScore += 25;
-                            spawnFloatingText(ent.x + 20, ent.y - 10, '+25');
+                            addBonusPoints(25, ent.x + 20, ent.y - 10);
                             continue;
                         } else if (protection === 'laser') {
                             // Laser: Destroy obstacle on contact
                             entities.splice(i, 1);
-                            powerUpBonusScore += 20;
-                            spawnFloatingText(ent.x + 20, ent.y - 10, '+20');
+                            addBonusPoints(20, ent.x + 20, ent.y - 10);
                             continue;
                         } else if (protection === 'dino') {
                             // T-Rex: Stomp through obstacles (already handled by trexActive)
@@ -6352,7 +6372,15 @@
                             bananasCollected += bananaValue;
                             // Show floating text (+150 for single, +300 for bundle)
                             const pointsGained = bananaValue * 150;
-                            spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained}`);
+
+                            // MONEY POWER-UP: Double banana points by adding extra to bonus
+                            if (moneyActive) {
+                                moneyBonusAccumulated += pointsGained; // Add extra 150/300 for 2x
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained * 2} (2X!)`);
+                            } else {
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained}`);
+                            }
+
                             // Debug log for multiplayer
                             if (gameMode === 'multiplayer') {
                                 console.log(`[Banana] Collected! Value: ${bananaValue}, Total: ${bananasCollected}, Score: ${score}`);
@@ -6376,8 +6404,7 @@
                                 sessionJetpacksCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 100;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+                                addBonusPoints(100, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('JETPACK');
@@ -6396,8 +6423,7 @@
                                 sessionDinoStompsCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 100;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+                                addBonusPoints(100, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('DINO-STOMP');
@@ -6413,8 +6439,7 @@
                                 sessionTurtlesCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 100;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+                                addBonusPoints(100, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('TURTLE TIME');
@@ -6431,8 +6456,7 @@
                                 sessionStarsCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 150;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+150');
+                                addBonusPoints(150, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('SUPERSTAR');
@@ -6448,11 +6472,10 @@
                                 // Track money collection
                                 sessionMoneyCollected++;
 
-                                // Award bonus points (this also gets doubled)
-                                const moneyBonus = 100;
-                                powerUpBonusScore += moneyBonus;
-                                moneyBonusAccumulated += moneyBonus; // Track this bonus
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100 (2X!)');
+                                // Award bonus points (this is the start of 2x, so double it manually)
+                                powerUpBonusScore += 100;
+                                moneyBonusAccumulated += 100; // This gives 200 total (100 base + 100 bonus)
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+200 (2X!)');
 
                                 // Announce power-up
                                 triggerAnnouncement('2X POINTS!');
@@ -6469,8 +6492,7 @@
                                 sessionLasersCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 125;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+125');
+                                addBonusPoints(125, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('LASER EYES');
@@ -6485,8 +6507,7 @@
                                 sessionBubblesCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 75;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+75');
+                                addBonusPoints(75, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('BUBBLE SHIELD');
@@ -6499,8 +6520,7 @@
                                 sessionPogosCollected++;
 
                                 // Award bonus points
-                                powerUpBonusScore += 75;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+75');
+                                addBonusPoints(75, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('POGO STICK');
@@ -6521,8 +6541,7 @@
                                 }
 
                                 // Award bonus points
-                                powerUpBonusScore += 200;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+200');
+                                addBonusPoints(200, player.x + PLAYER_WIDTH / 2, player.y - 10);
 
                                 // Announce power-up
                                 triggerAnnouncement('LION ROAR');
