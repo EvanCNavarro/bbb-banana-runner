@@ -159,8 +159,7 @@
             <div id="authError" class="error-msg"></div>
             <div id="authSuccess" class="success-msg" style="display: none;"></div>
             <form id="authForm">
-                <input type="text" id="authUsername" placeholder="Username" autocomplete="username" style="display: none;">
-                <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required>
+                <input type="text" id="authUsername" placeholder="Username" autocomplete="username" required>
                 <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" required>
                 <button type="submit" id="authSubmit">Login</button>
             </form>
@@ -257,11 +256,28 @@
             }
         }
 
-        async function signUp(email, password, username) {
+        // Convert username to internal email format for Supabase auth
+        function usernameToEmail(username) {
+            return `${username.toLowerCase()}@banana-jump.local`;
+        }
+
+        async function signUp(username, password) {
             if (!supabaseClient) {
                 showAuthError('Supabase not configured');
                 return false;
             }
+
+            // Validate username
+            if (username.length < 3) {
+                showAuthError('Username must be at least 3 characters');
+                return false;
+            }
+            if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+                showAuthError('Username can only contain letters, numbers, and underscores');
+                return false;
+            }
+
+            const email = usernameToEmail(username);
 
             const { data, error } = await supabaseClient.auth.signUp({
                 email,
@@ -272,7 +288,12 @@
             });
 
             if (error) {
-                showAuthError(error.message);
+                // Make error messages more user-friendly
+                if (error.message.includes('already registered')) {
+                    showAuthError('Username already taken');
+                } else {
+                    showAuthError(error.message);
+                }
                 return false;
             }
 
@@ -282,8 +303,7 @@
                     .from('profiles')
                     .upsert({
                         id: data.user.id,
-                        username: username,
-                        email: email
+                        username: username
                     });
 
                 if (profileError) {
@@ -291,15 +311,17 @@
                 }
             }
 
-            showAuthSuccess('Account created! Check your email to verify.');
+            showAuthSuccess('Account created! You can now login.');
             return true;
         }
 
-        async function signIn(email, password) {
+        async function signIn(username, password) {
             if (!supabaseClient) {
                 showAuthError('Supabase not configured');
                 return false;
             }
+
+            const email = usernameToEmail(username);
 
             const { data, error } = await supabaseClient.auth.signInWithPassword({
                 email,
@@ -307,7 +329,12 @@
             });
 
             if (error) {
-                showAuthError(error.message);
+                // Make error messages more user-friendly
+                if (error.message.includes('Invalid login')) {
+                    showAuthError('Invalid username or password');
+                } else {
+                    showAuthError(error.message);
+                }
                 return false;
             }
 
@@ -817,20 +844,15 @@
             const title = document.getElementById('authTitle');
             const submit = document.getElementById('authSubmit');
             const toggle = document.getElementById('authToggle');
-            const username = document.getElementById('authUsername');
 
             if (isAuthMode === 'signup') {
                 title.textContent = 'Sign Up';
                 submit.textContent = 'Create Account';
                 toggle.innerHTML = 'Already have an account? <a onclick="toggleAuthMode()">Login</a>';
-                username.style.display = 'block';
-                username.required = true;
             } else {
                 title.textContent = 'Login';
                 submit.textContent = 'Login';
                 toggle.innerHTML = 'Don\'t have an account? <a onclick="toggleAuthMode()">Sign Up</a>';
-                username.style.display = 'none';
-                username.required = false;
             }
 
             document.getElementById('authError').textContent = '';
@@ -853,7 +875,7 @@
             const displayName = document.getElementById('displayUsername');
 
             if (currentUser && userProfile) {
-                displayName.textContent = userProfile.username || currentUser.email;
+                displayName.textContent = userProfile.username || 'Player';
                 userInfo.style.display = 'block';
             } else {
                 userInfo.style.display = 'none';
@@ -864,18 +886,18 @@
         document.getElementById('authForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const email = document.getElementById('authEmail').value;
+            const username = document.getElementById('authUsername').value.trim();
             const password = document.getElementById('authPassword').value;
-            const username = document.getElementById('authUsername').value;
+
+            if (!username) {
+                showAuthError('Username is required');
+                return;
+            }
 
             if (isAuthMode === 'signup') {
-                if (!username) {
-                    showAuthError('Username is required');
-                    return;
-                }
-                await signUp(email, password, username);
+                await signUp(username, password);
             } else {
-                await signIn(email, password);
+                await signIn(username, password);
             }
         });
 
