@@ -6208,6 +6208,7 @@
                         const angleToObstacle = Math.atan2(entCenterY - playerCenterY, entCenterX - playerCenterX);
 
                         // Check if any beam is pointing at the obstacle (within tolerance)
+                        let laserDestroyed = false;
                         for (let b = 0; b < beamCount; b++) {
                             const beamAngle = laserAngle + (b * Math.PI * 2 / beamCount);
                             // Normalize angles for comparison
@@ -6219,11 +6220,12 @@
                             if (angleDiff < 0.25) { // ~15 degrees tolerance
                                 entities.splice(i, 1);
                                 powerUpBonusScore += 15;
-                                spawnFloatingText(ent.x + 20, ent.y - 10, '+15');
-                                break; // Exit beam loop, obstacle destroyed
+                                spawnFloatingText(entCenterX, entCenterY - 20, '+15');
+                                laserDestroyed = true;
+                                break; // Exit beam loop
                             }
                         }
-                        if (!entities[i]) continue; // Obstacle was destroyed, skip rest
+                        if (laserDestroyed) continue; // Move to next entity in outer loop
                     }
                 }
 
