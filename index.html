@@ -430,19 +430,32 @@
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
                 currentUser = session.user;
-                await loadUserProfile();
+                // Set fallback profile immediately
+                userProfile = {
+                    id: currentUser.id,
+                    username: currentUser.user_metadata?.username || 'Player'
+                };
+                await loadUserProfileWithTimeout();
                 updateUserDisplay();
                 // Go to menu if already logged in
                 gameState = 'menu';
             }
 
-            // Listen for auth changes
+            // Listen for auth changes (e.g., from other tabs)
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                // Skip if this is from our own signIn (already handled)
+                if (event === 'SIGNED_IN' && currentUser?.id === session?.user?.id) {
+                    return;
+                }
+
                 if (session) {
                     currentUser = session.user;
-                    await loadUserProfile();
+                    userProfile = {
+                        id: currentUser.id,
+                        username: currentUser.user_metadata?.username || 'Player'
+                    };
+                    await loadUserProfileWithTimeout();
                     updateUserDisplay();
-                    // Go to menu after login
                     if (gameState === 'welcome') {
                         gameState = 'menu';
                     }
@@ -450,20 +463,14 @@
                     currentUser = null;
                     userProfile = null;
                     updateUserDisplay();
-                    // Go back to welcome on logout
                     gameState = 'welcome';
                 }
             });
         }
 
         async function loadUserProfile() {
-            console.log('[loadUserProfile] Starting...');
-            if (!supabaseClient || !currentUser) {
-                console.log('[loadUserProfile] Missing supabaseClient or currentUser, returning');
-                return;
-            }
+            if (!supabaseClient || !currentUser) return;
 
-            console.log('[loadUserProfile] Querying profiles table for id:', currentUser.id);
             try {
                 const { data, error } = await supabaseClient
                     .from('profiles')
@@ -471,34 +478,17 @@
                     .eq('id', currentUser.id)
                     .single();
 
-                console.log('[loadUserProfile] Query complete. data:', data, 'error:', error);
-
                 if (error) {
-                    console.error('Error loading profile:', error);
-                    // Create a minimal profile from auth metadata if DB query fails
-                    userProfile = {
-                        id: currentUser.id,
-                        username: currentUser.user_metadata?.username || 'Player'
-                    };
+                    // Keep fallback profile that was already set
                 } else if (data) {
                     userProfile = data;
                 }
 
-                console.log('[loadUserProfile] userProfile set to:', userProfile);
-
                 // Also load skins and achievements
-                console.log('[loadUserProfile] Calling loadPlayerProgress...');
                 await loadPlayerProgress();
-                console.log('[loadUserProfile] loadPlayerProgress complete');
             } catch (err) {
-                console.error('LoadUserProfile error:', err);
-                // Fallback profile
-                userProfile = {
-                    id: currentUser.id,
-                    username: currentUser.user_metadata?.username || 'Player'
-                };
+                // Keep fallback profile that was already set
             }
-            console.log('[loadUserProfile] Done');
         }
 
         // Convert username to internal email format for Supabase auth
@@ -579,18 +569,30 @@
                 return false;
             }
 
+            // Check if already logged in (e.g., from another tab)
+            const { data: { session: existingSession } } = await supabaseClient.auth.getSession();
+            if (existingSession) {
+                // Already authenticated - just load profile and proceed
+                currentUser = existingSession.user;
+                userProfile = {
+                    id: currentUser.id,
+                    username: currentUser.user_metadata?.username || 'Player'
+                };
+                await loadUserProfileWithTimeout();
+                updateUserDisplay();
+                closeAuthModal();
+                return true;
+            }
+
             const email = usernameToEmail(username);
 
             try {
-                console.log('Attempting sign in for:', email);
                 const { data, error } = await supabaseClient.auth.signInWithPassword({
                     email,
                     password
                 });
 
                 if (error) {
-                    console.error('Sign in error from Supabase:', error);
-                    // Make error messages more user-friendly
                     if (error.message.includes('Invalid login')) {
                         showAuthError('Invalid username or password');
                     } else {
@@ -599,48 +601,38 @@
                     return false;
                 }
 
-                console.log('Sign in successful, data:', data);
-
-                // Set user immediately (don't wait for onAuthStateChange)
                 if (data && data.user) {
-                    console.log('Setting currentUser:', data.user.id);
                     currentUser = data.user;
-
-                    // Create a minimal fallback profile from auth data
                     userProfile = {
                         id: data.user.id,
                         username: data.user.user_metadata?.username || 'Player'
                     };
 
-                    console.log('Loading user profile (with 5s timeout)...');
-                    // Try to load full profile, but don't block login if it fails/hangs
-                    try {
-                        const profilePromise = loadUserProfile();
-                        const timeoutPromise = new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('Profile load timeout')), 5000)
-                        );
-                        await Promise.race([profilePromise, timeoutPromise]);
-                        console.log('Profile loaded:', userProfile);
-                    } catch (profileErr) {
-                        console.warn('Profile load issue (continuing with fallback):', profileErr);
-                        // userProfile already has fallback values set above
-                    }
-
-                    console.log('Updating display...');
+                    await loadUserProfileWithTimeout();
                     updateUserDisplay();
-
-                    console.log('Closing modal and going to menu...');
                     closeAuthModal();
                     return true;
                 } else {
-                    console.error('No user in response data');
                     showAuthError('Login failed - please try again');
                     return false;
                 }
             } catch (err) {
-                console.error('SignIn caught error:', err);
+                console.error('SignIn error:', err);
                 showAuthError('Login failed - please try again');
                 return false;
+            }
+        }
+
+        // Helper to load profile with timeout protection
+        async function loadUserProfileWithTimeout() {
+            try {
+                const profilePromise = loadUserProfile();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), 5000)
+                );
+                await Promise.race([profilePromise, timeoutPromise]);
+            } catch (err) {
+                // Profile load failed/timed out, fallback profile already set
             }
         }
 
@@ -1016,21 +1008,15 @@
         // SKINS & ACHIEVEMENTS FUNCTIONS
         // ============================================
         async function loadPlayerProgress() {
-            console.log('[loadPlayerProgress] Starting...');
-            if (!supabaseClient || !currentUser) {
-                console.log('[loadPlayerProgress] Missing supabaseClient or currentUser');
-                return;
-            }
+            if (!supabaseClient || !currentUser) return;
 
             try {
                 // Load unlocked skins
-                console.log('[loadPlayerProgress] Querying player_skins...');
                 const { data: skins, error: skinsError } = await supabaseClient
                     .from('player_skins')
                     .select('skin_id')
                     .eq('player_id', currentUser.id);
 
-                console.log('[loadPlayerProgress] Skins query done:', skins, skinsError);
                 if (!skinsError && skins) {
                     unlockedSkins = ['default', ...skins.map(s => s.skin_id)];
                 }
@@ -1041,21 +1027,17 @@
                 }
 
                 // Load achievements
-                console.log('[loadPlayerProgress] Querying player_achievements...');
                 const { data: achievements, error: achievementsError } = await supabaseClient
                     .from('player_achievements')
                     .select('achievement_id')
                     .eq('player_id', currentUser.id);
 
-                console.log('[loadPlayerProgress] Achievements query done:', achievements, achievementsError);
                 if (!achievementsError && achievements) {
                     unlockedAchievements = achievements.map(a => a.achievement_id);
                 }
             } catch (err) {
-                console.error('Error loading player progress:', err);
                 // Continue anyway - skins/achievements are not critical
             }
-            console.log('[loadPlayerProgress] Done');
         }
 
         async function unlockSkin(skinId) {
