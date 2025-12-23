@@ -6139,25 +6139,38 @@
                     }
 
                     // Random obstacle count up to max
-                    // For maxObstacles=5 or 6, use weighted random: lower counts have double weight
+                    // Probabilities gradually even out as score increases
+                    // At 6000: 5&6 have ~10% each, 1-4 have ~20% each
+                    // Every 1000 pts, high stacks get more likely until fully even at 10000+
                     let obstacleCount;
                     if (maxObstacles === 6) {
-                        // Weighted: 1,2,3,4 each have weight 2, 5 and 6 each have weight 1 (total 10)
-                        const rand = getRandom() * 10;
+                        // Calculate evenness factor: 0 at 6000, 1 at 10000+
+                        const evenFactor = Math.min(1, Math.max(0, (score - 6000) / 4000));
+                        // Weight for 5&6 transitions from 1 to 2 as evenFactor goes 0->1
+                        const highWeight = 1 + evenFactor;
+                        // Total weight: 4*2 + 2*highWeight = 8 + 2*highWeight
+                        const totalWeight = 8 + 2 * highWeight;
+                        const rand = getRandom() * totalWeight;
+                        // Thresholds for each obstacle count
                         if (rand < 2) obstacleCount = 1;
                         else if (rand < 4) obstacleCount = 2;
                         else if (rand < 6) obstacleCount = 3;
                         else if (rand < 8) obstacleCount = 4;
-                        else if (rand < 9) obstacleCount = 5; // ~10% chance
-                        else obstacleCount = 6; // ~10% chance
+                        else if (rand < 8 + highWeight) obstacleCount = 5;
+                        else obstacleCount = 6;
                     } else if (maxObstacles === 5) {
-                        // Weighted: 1,2,3,4 each have weight 2, 5 has weight 1 (total 9)
-                        const rand = getRandom() * 9;
+                        // Calculate evenness factor: 0 at 5000, 1 at 9000+
+                        const evenFactor = Math.min(1, Math.max(0, (score - 5000) / 4000));
+                        // Weight for 5 transitions from 1 to 2 as evenFactor goes 0->1
+                        const highWeight = 1 + evenFactor;
+                        // Total weight: 4*2 + highWeight = 8 + highWeight
+                        const totalWeight = 8 + highWeight;
+                        const rand = getRandom() * totalWeight;
                         if (rand < 2) obstacleCount = 1;
                         else if (rand < 4) obstacleCount = 2;
                         else if (rand < 6) obstacleCount = 3;
                         else if (rand < 8) obstacleCount = 4;
-                        else obstacleCount = 5; // ~11% chance vs ~22% for others
+                        else obstacleCount = 5;
                     } else {
                         obstacleCount = Math.floor(getRandom() * maxObstacles) + 1;
                     }
