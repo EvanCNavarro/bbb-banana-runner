@@ -54,16 +54,16 @@ export const BANANA_HEIGHT_OFFSET = 55;
 export const JUMP_BUFFER_MS = 150;
 
 /**
- * Initial game scroll speed (pixels per frame)
+ * Initial game scroll speed (pixels per frame at 60fps)
  * @constant {number}
  */
 export const INITIAL_SPEED = 6;
 
 /**
- * Speed increase per frame (acceleration)
+ * Speed increase per frame (acceleration, normalized to 60fps)
  * @constant {number}
  */
-export const SPEED_INCREMENT = 0.002;
+export const SPEED_INCREMENT = 0.0004;
 
 /**
  * Jump velocity (negative = upward)

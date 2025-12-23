@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS profiles (
     -- Power-up Stats
     jetpacks_collected INTEGER DEFAULT 0,
     dino_stomps_collected INTEGER DEFAULT 0,
+    bubbles_collected INTEGER DEFAULT 0,
+    bubble_hits_absorbed INTEGER DEFAULT 0,
+    pogos_collected INTEGER DEFAULT 0,
+    lions_collected INTEGER DEFAULT 0,
+    turtles_collected INTEGER DEFAULT 0,
+    stars_collected INTEGER DEFAULT 0,
 
     -- Land-specific Stats
     snow_games_played INTEGER DEFAULT 0,
@@ -62,6 +68,12 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     highest_level INTEGER DEFAULT 0,
     jetpacks_used INTEGER DEFAULT 0,
     dino_stomps_used INTEGER DEFAULT 0,
+    bubbles_used INTEGER DEFAULT 0,
+    pogos_used INTEGER DEFAULT 0,
+    lions_used INTEGER DEFAULT 0,
+    turtles_used INTEGER DEFAULT 0,
+    stars_used INTEGER DEFAULT 0,
+    bubble_hits_absorbed INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
