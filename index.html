@@ -174,17 +174,231 @@
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <script>
+    <script type="module">
+        // ============================================
+        // MODULE IMPORTS
+        // ============================================
+
+        // Core configuration
+        import {
+            SUPABASE_URL,
+            SUPABASE_ANON_KEY,
+            PLAYER_SCALE,
+            ENTITY_SCALE,
+            BANANA_HEIGHT_OFFSET,
+            JUMP_BUFFER_MS,
+            INITIAL_SPEED,
+            JUMP_VELOCITY,
+            GRAVITY,
+            SPAWN_INTERVAL,
+            BANANA_SPAWN_CHANCE,
+            BANANA_POINTS,
+            GROUND_HEIGHT_RATIO,
+            GAME_STATES,
+            GAME_MODES
+        } from './src/core/config.js';
+
+        // Design system
+        import { createDesignSystem } from './src/core/designSystem.js';
+
+        // Utilities
+        import {
+            drawSprite as drawSpriteUtil,
+            pointInBounds as pointInBoundsUtil,
+            clamp,
+            lerp,
+            randomInt
+        } from './src/core/utils.js';
+
+        // UI Components (available for future use)
+        import { createUIComponents } from './src/ui/components.js';
+
+        // Click handling (available for future use)
+        import { createClickManager, createInputHandler } from './src/ui/clickHandler.js';
+
+        // Services
+        import { createAuthService, usernameToEmail as authUsernameToEmail, validateUsername } from './src/services/auth.js';
+        import { createDatabaseService } from './src/services/database.js';
+        import { createMultiplayerService } from './src/services/multiplayer.js';
+
+        // ============================================
+        // CANVAS SETUP
+        // ============================================
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = false;
 
+        // Initialize design system bound to canvas
+        const DS = createDesignSystem(canvas);
+
         // ============================================
-        // SUPABASE CONFIGURATION
-        // Replace these with your Supabase project values
+        // UI COMPONENTS
         // ============================================
-        const SUPABASE_URL = 'https://cwolgatnphccqvunihav.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3b2xnYXRucGhjY3F2dW5paGF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0Mjc2NTksImV4cCI6MjA4MjAwMzY1OX0.IyhyEfc1OWnXYJ5FADPtIdpzRWBn2EXKlIt85l2_xLc';
+
+        // Navigation stack for back button
+        let navigationStack = [];
+
+        function navigateTo(screen, addToStack = true) {
+            if (addToStack && gameState !== 'welcome' && gameState !== 'playing') {
+                navigationStack.push(gameState);
+            }
+            gameState = screen;
+        }
+
+        function navigateBack() {
+            if (navigationStack.length > 0) {
+                gameState = navigationStack.pop();
+            } else {
+                gameState = 'menu';
+            }
+        }
+
+        // Draw a styled button - returns bounds for click detection
+        function drawStyledButton(x, y, width, height, label, options = {}) {
+            const {
+                primary = true,
+                disabled = false,
+                centered = true
+            } = options;
+
+            const actualX = centered ? x - width / 2 : x;
+            const actualY = y;
+
+            // Background
+            if (disabled) {
+                ctx.fillStyle = DS.colors.locked;
+            } else if (primary) {
+                ctx.fillStyle = DS.colors.primary;
+            } else {
+                ctx.fillStyle = 'transparent';
+                ctx.strokeStyle = DS.colors.primary;
+                ctx.lineWidth = 2;
+            }
+
+            // Draw rounded rect
+            const r = DS.button.radius;
+            ctx.beginPath();
+            ctx.roundRect(actualX, actualY, width, height, r);
+            if (primary || disabled) {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+
+            // Text
+            ctx.fillStyle = primary ? DS.colors.bgDark : DS.colors.primary;
+            if (disabled) ctx.fillStyle = DS.colors.textMuted;
+            ctx.font = DS.font('body', 'bold');
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, actualX + width / 2, actualY + height / 2);
+
+            // Return bounds for click detection
+            return { x: actualX, y: actualY, w: width, h: height, action: options.action || label };
+        }
+
+        // Draw header with title and optional back button
+        function drawHeader(title, showBack = true) {
+            const height = DS.header.height();
+
+            // Background
+            ctx.fillStyle = DS.colors.bgOverlay;
+            ctx.fillRect(0, 0, canvas.width, height);
+
+            // Bottom border
+            ctx.strokeStyle = DS.colors.primary;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            ctx.lineTo(canvas.width, height);
+            ctx.stroke();
+
+            // Back button
+            let backBounds = null;
+            if (showBack) {
+                const backSize = height - DS.spacing.lg;
+                const backX = DS.spacing.md;
+                const backY = (height - backSize) / 2;
+
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('h3', 'bold');
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('←', backX, height / 2);
+
+                backBounds = { x: 0, y: 0, w: height, h: height, action: 'back' };
+            }
+
+            // Title
+            ctx.fillStyle = DS.colors.white;
+            ctx.font = DS.font('h3', 'bold');
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(title, canvas.width / 2, height / 2);
+
+            return { height, backBounds };
+        }
+
+        // Draw a panel/card
+        function drawPanel(x, y, width, height, options = {}) {
+            const { centered = false, title = null } = options;
+            const actualX = centered ? x - width / 2 : x;
+
+            // Background
+            ctx.fillStyle = DS.colors.bgPanel;
+            ctx.beginPath();
+            ctx.roundRect(actualX, y, width, height, 12);
+            ctx.fill();
+
+            // Border
+            ctx.strokeStyle = DS.colors.primary;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Title if provided
+            if (title) {
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('body', 'bold');
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(title, actualX + DS.spacing.md, y + DS.spacing.md);
+            }
+
+            return { x: actualX, y, w: width, h: height };
+        }
+
+        // Draw section title
+        function drawSectionTitle(text, y) {
+            ctx.fillStyle = DS.colors.textSecondary;
+            ctx.font = DS.font('small', 'bold');
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(text.toUpperCase(), canvas.width / 2, y);
+            return y + DS.fontSize('small') + DS.spacing.sm;
+        }
+
+        // Check if point is in bounds
+        function pointInBounds(px, py, bounds) {
+            if (!bounds) return false;
+            return px >= bounds.x && px <= bounds.x + bounds.w &&
+                   py >= bounds.y && py <= bounds.y + bounds.h;
+        }
+
+        // Store clickable areas for current frame
+        let clickableAreas = [];
+
+        function resetClickables() {
+            clickableAreas = [];
+        }
+
+        function addClickable(bounds) {
+            if (bounds) clickableAreas.push(bounds);
+        }
+
+        // ============================================
+        // SUPABASE INITIALIZATION
+        // Config imported from ./src/core/config.js
+        // ============================================
 
         // Initialize Supabase client
         let supabaseClient = null;
@@ -410,7 +624,7 @@
         async function getLeaderboard(land = null, limit = 10) {
             if (!supabaseClient) return [];
 
-            let query = supabase
+            let query = supabaseClient
                 .from('leaderboard')
                 .select('*')
                 .order('high_score', { ascending: false })
@@ -428,8 +642,74 @@
                 return data || [];
             }
 
-            const { data, error } = query;
+            const { data, error } = await query;
             return data || [];
+        }
+
+        // Fetch stats for game over screen
+        async function fetchGameOverStats(currentScore, landPlayed) {
+            gameOverStats.loading = true;
+
+            if (!supabaseClient) {
+                gameOverStats.loading = false;
+                return;
+            }
+
+            try {
+                // Fetch global top score (from profiles - overall high score)
+                const { data: globalData } = await supabaseClient
+                    .from('profiles')
+                    .select('username, high_score')
+                    .order('high_score', { ascending: false })
+                    .limit(1)
+                    .single();
+
+                if (globalData) {
+                    gameOverStats.globalTopScore = globalData.high_score;
+                    gameOverStats.globalTopPlayer = globalData.username;
+                    gameOverStats.isNewGlobalBest = currentUser && currentScore > globalData.high_score;
+                }
+
+                // Fetch biome/land top score
+                const { data: biomeData } = await supabaseClient
+                    .from('game_sessions')
+                    .select('score, profiles!inner(username)')
+                    .eq('land_played', landPlayed)
+                    .order('score', { ascending: false })
+                    .limit(1)
+                    .single();
+
+                if (biomeData) {
+                    gameOverStats.biomeTopScore = biomeData.score;
+                    gameOverStats.biomeTopPlayer = biomeData.profiles?.username || 'Unknown';
+                }
+
+                // Fetch personal best for this biome (only if logged in)
+                if (currentUser) {
+                    const { data: personalData } = await supabaseClient
+                        .from('game_sessions')
+                        .select('score')
+                        .eq('player_id', currentUser.id)
+                        .eq('land_played', landPlayed)
+                        .order('score', { ascending: false })
+                        .limit(1)
+                        .single();
+
+                    if (personalData) {
+                        // This is the previous best (before this game was saved)
+                        gameOverStats.personalBiomeBest = personalData.score;
+                        gameOverStats.isNewBiomeBest = currentScore > personalData.score;
+                    } else {
+                        // First time playing this biome
+                        gameOverStats.personalBiomeBest = 0;
+                        gameOverStats.isNewBiomeBest = true;
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching game over stats:', err);
+            }
+
+            gameOverStats.loading = false;
         }
 
         // ============================================
@@ -510,7 +790,7 @@
             if (!supabaseClient) return;
 
             // Subscribe to lobby changes
-            lobbySubscription = supabase
+            lobbySubscription = supabaseClient
                 .channel(`lobby:${lobbyId}`)
                 .on('postgres_changes',
                     { event: '*', schema: 'public', table: 'lobby_players', filter: `lobby_id=eq.${lobbyId}` },
@@ -582,7 +862,7 @@
             startGame();
 
             // Subscribe to opponent updates
-            if (supabase && currentLobby) {
+            if (supabaseClient && currentLobby) {
                 subscribeGameUpdates();
             }
         }
@@ -590,7 +870,7 @@
         function subscribeGameUpdates() {
             if (!supabaseClient || !currentLobby) return;
 
-            supabase
+            supabaseClient
                 .channel(`game:${currentLobby.id}`)
                 .on('broadcast', { event: 'game_update' }, (payload) => {
                     if (payload.payload.player_id !== currentUser.id) {
@@ -607,7 +887,7 @@
         function broadcastGameState(isGameOver = false) {
             if (!supabaseClient || !currentLobby || gameMode !== 'multiplayer') return;
 
-            supabase
+            supabaseClient
                 .channel(`game:${currentLobby.id}`)
                 .send({
                     type: 'broadcast',
@@ -718,7 +998,7 @@
 
             selectedSkin = skinId;
 
-            if (supabase && currentUser) {
+            if (supabaseClient && currentUser) {
                 await supabaseClient
                     .from('profiles')
                     .update({ equipped_skin: skinId })
@@ -991,13 +1271,10 @@
         window.addEventListener('resize', resizeCanvas);
 
         // Dynamic constants based on screen size
+        // Note: PLAYER_SCALE, ENTITY_SCALE, BANANA_HEIGHT_OFFSET imported from config.js
         function getGroundLevel() {
             return canvas.height - 70;
         }
-
-        const PLAYER_SCALE = 1.5;
-        const ENTITY_SCALE = 1.5;
-        const BANANA_HEIGHT_OFFSET = 55;
 
         // High-definition pixel art sprites (32x48 runners, doubled detail)
         const sprites = {
@@ -1531,6 +1808,18 @@
         let leaderboardData = [];
         let loadingLeaderboard = false;
 
+        // Game Over stats
+        let gameOverStats = {
+            globalTopScore: null,
+            globalTopPlayer: null,
+            biomeTopScore: null,
+            biomeTopPlayer: null,
+            personalBiomeBest: null,
+            isNewBiomeBest: false,
+            isNewGlobalBest: false,
+            loading: true
+        };
+
         // Multiplayer lobby state
         let currentLobby = null;
         let lobbyPlayers = [];
@@ -1568,7 +1857,7 @@
         let landsPlayed = new Set();
 
         // Jump buffering - stores timestamp of last jump attempt
-        const JUMP_BUFFER_MS = 150; // Window to buffer jump input before landing
+        // JUMP_BUFFER_MS imported from config.js
         let jumpBufferTime = 0;
 
         // Land selection buttons (will be calculated in draw)
@@ -1597,7 +1886,15 @@
             const x = (clientX - rect.left) * (canvas.width / rect.width);
             const y = (clientY - rect.top) * (canvas.height / rect.height);
 
-            // Check menu action buttons first
+            // Check design system clickable areas first
+            for (const area of clickableAreas) {
+                if (pointInBounds(x, y, area)) {
+                    handleMenuAction(area.action);
+                    return true;
+                }
+            }
+
+            // Check legacy menu action buttons
             for (const btn of menuButtons) {
                 if (pointInButton(x, y, btn)) {
                     handleMenuAction(btn.action);
@@ -1831,6 +2128,9 @@
                     if (ent.type === 'obstacle') {
                         gameState = 'gameover';
 
+                        // Fetch game over stats (before saving so we compare against previous bests)
+                        fetchGameOverStats(score, selectedLand);
+
                         // Broadcast final score in multiplayer
                         const isMultiplayer = gameMode === 'multiplayer';
                         let didWin = false;
@@ -1909,9 +2209,10 @@
         // Draw land selection buttons
         function drawLandButtons(startY, showChangeText) {
             const landKeys = Object.keys(lands);
-            const btnWidth = 120;
-            const btnHeight = 50;
-            const gap = 20;
+            // Responsive button sizes
+            const btnWidth = Math.min(120, Math.round((canvas.width - DS.spacing.xl * 2) / landKeys.length - DS.spacing.sm));
+            const btnHeight = Math.max(44, Math.round(canvas.width * 0.055));
+            const gap = DS.spacing.sm;
             const totalWidth = landKeys.length * btnWidth + (landKeys.length - 1) * gap;
             const startX = (canvas.width - totalWidth) / 2;
 
@@ -1926,27 +2227,30 @@
                 // Store button for click detection
                 landButtons.push({ x, y, w: btnWidth, h: btnHeight, land: key });
 
-                // Draw button background
-                ctx.fillStyle = isSelected ? land.ground : '#444';
-                ctx.fillRect(x, y, btnWidth, btnHeight);
+                // Draw button with rounded corners
+                ctx.fillStyle = isSelected ? land.ground : DS.colors.locked;
+                ctx.beginPath();
+                ctx.roundRect(x, y, btnWidth, btnHeight, DS.button.radius);
+                ctx.fill();
 
                 // Draw border
-                ctx.strokeStyle = isSelected ? '#FFF' : '#888';
-                ctx.lineWidth = isSelected ? 4 : 2;
-                ctx.strokeRect(x, y, btnWidth, btnHeight);
+                ctx.strokeStyle = isSelected ? DS.colors.white : DS.colors.textMuted;
+                ctx.lineWidth = isSelected ? 3 : 2;
+                ctx.stroke();
 
                 // Draw text
-                ctx.fillStyle = '#FFF';
-                ctx.font = 'bold 16px monospace';
+                ctx.fillStyle = DS.colors.white;
+                ctx.font = DS.font('small', 'bold');
                 ctx.textAlign = 'center';
-                ctx.fillText(land.name, x + btnWidth / 2, y + btnHeight / 2 + 6);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(land.name, x + btnWidth / 2, y + btnHeight / 2);
             });
 
             if (showChangeText) {
-                ctx.fillStyle = '#AAA';
-                ctx.font = '14px monospace';
+                ctx.fillStyle = DS.colors.textSecondary;
+                ctx.font = DS.font('tiny');
                 ctx.textAlign = 'center';
-                ctx.fillText('Tap a land to change, or tap anywhere to play', canvas.width / 2, startY + btnHeight + 25);
+                ctx.fillText('Tap a land to change, or tap anywhere to play', canvas.width / 2, startY + btnHeight + DS.spacing.lg);
             }
         }
 
@@ -1981,209 +2285,284 @@
 
             if (gameState === 'welcome') {
                 // Welcome/Landing screen - shown before login
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.textAlign = 'center';
+                const centerX = canvas.width / 2;
+                let y = DS.spacing.xxl;
 
                 // Title
-                ctx.fillStyle = '#FFE135';
-                ctx.font = 'bold 64px monospace';
-                ctx.fillText('BANANA RUNNER', canvas.width / 2, 120);
+                ctx.textAlign = 'center';
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('h1', 'bold');
+                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize('h1'));
+                y += DS.fontSize('h1') + DS.spacing.lg;
 
                 // Draw banana sprite as logo
-                drawSprite(ctx, canvas.width / 2 - 40, 150, sprites.banana, 3, colors.banana);
+                const bananaScale = Math.max(2, Math.round(canvas.width / 400));
+                const bananaWidth = sprites.banana[0].length * bananaScale;
+                drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
+                y += sprites.banana.length * bananaScale + DS.spacing.xl;
 
-                // Game description
-                ctx.fillStyle = '#FFF';
-                ctx.font = '24px monospace';
-                ctx.fillText('An endless runner adventure!', canvas.width / 2, 280);
+                // Tagline
+                ctx.fillStyle = DS.colors.textPrimary;
+                ctx.font = DS.font('h3');
+                ctx.fillText('An endless runner adventure!', centerX, y);
+                y += DS.fontSize('h3') + DS.spacing.xl;
 
-                ctx.fillStyle = '#AAA';
-                ctx.font = '18px monospace';
-                ctx.fillText('Jump over obstacles and collect bananas', canvas.width / 2, 320);
-                ctx.fillText('Compete with friends in multiplayer mode', canvas.width / 2, 350);
-                ctx.fillText('Unlock achievements and climb the leaderboard', canvas.width / 2, 380);
+                // Features panel
+                const panelWidth = Math.min(500, canvas.width - DS.spacing.xl * 2);
+                const panelHeight = DS.fontSize('body') * 4 + DS.spacing.lg * 2;
+                drawPanel(centerX, y, panelWidth, panelHeight, { centered: true });
 
-                // Features list
-                ctx.fillStyle = '#FFE135';
-                ctx.font = 'bold 16px monospace';
-                ctx.fillText('4 unique lands  |  Multiplayer battles  |  Global leaderboards', canvas.width / 2, 430);
+                ctx.fillStyle = DS.colors.textSecondary;
+                ctx.font = DS.font('body');
+                const featureY = y + DS.spacing.lg + DS.fontSize('body');
+                ctx.fillText('Jump over obstacles & collect bananas', centerX, featureY);
+                ctx.fillText('Compete in multiplayer battles', centerX, featureY + DS.fontSize('body') + DS.spacing.sm);
+                ctx.fillText('Unlock achievements & climb ranks', centerX, featureY + (DS.fontSize('body') + DS.spacing.sm) * 2);
+                y += panelHeight + DS.spacing.xl;
+
+                // Feature highlights
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('small', 'bold');
+                ctx.fillText('4 LANDS  •  MULTIPLAYER  •  LEADERBOARDS', centerX, y);
+                y += DS.fontSize('small') + DS.spacing.xxl;
 
                 // Login button
-                drawMenuButtons([
-                    { label: 'LOGIN / SIGN UP', action: 'login', primary: true }
-                ], canvas.height / 2 + 120);
+                const btnWidth = Math.min(280, canvas.width - DS.spacing.xl * 2);
+                const btnHeight = DS.button.height();
+                const btnBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'GET STARTED', { action: 'login', primary: true });
+                addClickable(btnBounds);
+                y += btnHeight + DS.spacing.lg;
 
                 // Footer
-                ctx.fillStyle = '#666';
-                ctx.font = '14px monospace';
-                ctx.fillText('Create an account to save your progress and compete!', canvas.width / 2, canvas.height - 40);
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small');
+                ctx.fillText('Create an account to save progress', centerX, canvas.height - DS.spacing.xl);
 
             } else if (gameState === 'menu') {
                 // Menu screen - shown after login
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlayLight;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#FFFFFF';
+                const centerX = canvas.width / 2;
+                let y = DS.spacing.xl;
+
+                // Title
                 ctx.textAlign = 'center';
-                ctx.font = 'bold 56px monospace';
-                ctx.fillText('BANANA RUNNER', canvas.width / 2, 100);
+                ctx.fillStyle = DS.colors.white;
+                ctx.font = DS.font('h1', 'bold');
+                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize('h1'));
+                y += DS.fontSize('h1') + DS.spacing.md;
 
                 // Draw banana sprite as logo
-                drawSprite(ctx, canvas.width / 2 - 30, 120, sprites.banana, 2, colors.banana);
+                const bananaScale = Math.max(2, Math.round(canvas.width / 400));
+                const bananaWidth = sprites.banana[0].length * bananaScale;
+                drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
+                y += sprites.banana.length * bananaScale + DS.spacing.lg;
 
-                // User stats (always shown since user must be logged in)
+                // User stats panel
                 if (userProfile) {
-                    ctx.font = '18px monospace';
-                    ctx.fillStyle = '#FFE135';
-                    ctx.fillText(`Welcome, ${userProfile.username || 'Player'}!`, canvas.width / 2, 200);
-                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, canvas.width / 2, 230);
-                    ctx.fillStyle = '#AAA';
-                    ctx.fillText(`Total Bananas: ${userProfile.total_bananas || 0}  |  Games: ${userProfile.total_games || 0}`, canvas.width / 2, 260);
+                    const statsPanelWidth = Math.min(420, canvas.width - DS.spacing.xl * 2);
+                    const statsPanelHeight = DS.fontSize('body') * 3 + DS.spacing.lg * 2;
+                    drawPanel(centerX, y, statsPanelWidth, statsPanelHeight, { centered: true });
+
+                    const statsY = y + DS.spacing.lg + DS.fontSize('body') / 2;
+                    ctx.fillStyle = DS.colors.primary;
+                    ctx.font = DS.font('body', 'bold');
+                    ctx.fillText(`${userProfile.username || 'Player'}`, centerX, statsY);
+
+                    ctx.fillStyle = DS.colors.white;
+                    ctx.font = DS.font('body');
+                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, centerX, statsY + DS.fontSize('body') + DS.spacing.xs);
+
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('small');
+                    ctx.fillText(`${userProfile.total_bananas || 0} bananas  |  ${userProfile.total_games || 0} games`, centerX, statsY + (DS.fontSize('body') + DS.spacing.xs) * 2);
+                    y += statsPanelHeight + DS.spacing.lg;
                 }
 
                 // Land selection
-                ctx.fillStyle = '#FFF';
-                ctx.font = '20px monospace';
-                ctx.fillText('Select Land:', canvas.width / 2, 310);
-                drawLandButtons(330, false);
+                y = drawSectionTitle('SELECT LAND', y);
+                drawLandButtons(y, false);
+                y += 50 + DS.spacing.xl; // Land button height + spacing
 
-                // Menu buttons
-                const menuBtns = [
-                    { label: 'SOLO PLAY', action: 'solo', primary: true },
-                    { label: 'MULTIPLAYER', action: 'multiplayer', primary: false },
-                    { label: 'LEADERBOARD', action: 'leaderboard', primary: false }
-                ];
+                // Menu buttons using design system
+                const btnWidth = Math.min(240, canvas.width - DS.spacing.xl * 2);
+                const btnHeight = DS.button.height();
+                const gap = DS.spacing.md;
 
-                drawMenuButtons(menuBtns, 420);
+                const soloBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'SOLO PLAY', { action: 'solo', primary: true });
+                addClickable(soloBounds);
+                y += btnHeight + gap;
+
+                const multiBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'MULTIPLAYER', { action: 'multiplayer', primary: false });
+                addClickable(multiBounds);
+                y += btnHeight + gap;
+
+                const leaderBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'LEADERBOARD', { action: 'leaderboard', primary: false });
+                addClickable(leaderBounds);
 
                 // Instructions
-                ctx.font = '16px monospace';
-                ctx.fillStyle = '#666';
-                ctx.fillText('Press SPACE or tap to jump!', canvas.width / 2, canvas.height - 40);
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small');
+                ctx.fillText('Press SPACE or tap to jump!', centerX, canvas.height - DS.spacing.xl);
 
             } else if (gameState === 'leaderboard') {
                 // Leaderboard screen
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#FFE135';
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 42px monospace';
-                ctx.fillText('LEADERBOARD', canvas.width / 2, 80);
+                // Header with back button
+                const header = drawHeader('LEADERBOARD', true);
+                addClickable(header.backBounds);
+
+                const centerX = canvas.width / 2;
+                let contentY = header.height + DS.spacing.lg;
 
                 if (loadingLeaderboard) {
-                    ctx.fillStyle = '#AAA';
-                    ctx.font = '24px monospace';
-                    ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2);
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('h3');
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Loading...', centerX, canvas.height / 2);
                 } else if (leaderboardData.length === 0) {
-                    ctx.fillStyle = '#AAA';
-                    ctx.font = '20px monospace';
-                    ctx.fillText('No scores yet!', canvas.width / 2, canvas.height / 2 - 20);
-                    ctx.fillText('Be the first to play!', canvas.width / 2, canvas.height / 2 + 10);
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('body');
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No scores yet!', centerX, canvas.height / 2 - DS.spacing.md);
+                    ctx.fillText('Be the first to play!', centerX, canvas.height / 2 + DS.spacing.md);
                 } else {
-                    // Draw leaderboard entries
-                    const startY = 140;
-                    const rowHeight = 40;
+                    // Draw leaderboard panel
+                    const panelWidth = Math.min(500, canvas.width - DS.spacing.lg * 2);
+                    const rowHeight = Math.max(36, DS.fontSize('body') + DS.spacing.md);
+                    const panelHeight = rowHeight * (leaderboardData.length + 1) + DS.spacing.lg * 2;
+                    const panelX = centerX - panelWidth / 2;
 
-                    // Header
-                    ctx.fillStyle = '#888';
-                    ctx.font = 'bold 16px monospace';
+                    drawPanel(panelX, contentY, panelWidth, panelHeight);
+
+                    // Table header
+                    const tableY = contentY + DS.spacing.lg;
+                    const colRank = panelX + DS.spacing.lg;
+                    const colPlayer = panelX + DS.spacing.xl * 2;
+                    const colScore = panelX + panelWidth - DS.spacing.lg;
+
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('small', 'bold');
                     ctx.textAlign = 'left';
-                    ctx.fillText('RANK', canvas.width / 2 - 180, startY);
-                    ctx.fillText('PLAYER', canvas.width / 2 - 100, startY);
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('RANK', colRank, tableY + rowHeight / 2);
+                    ctx.fillText('PLAYER', colPlayer, tableY + rowHeight / 2);
                     ctx.textAlign = 'right';
-                    ctx.fillText('SCORE', canvas.width / 2 + 180, startY);
+                    ctx.fillText('SCORE', colScore, tableY + rowHeight / 2);
 
+                    // Draw entries
                     leaderboardData.forEach((entry, i) => {
-                        const y = startY + (i + 1) * rowHeight;
+                        const y = tableY + (i + 1) * rowHeight + rowHeight / 2;
                         const isCurrentUser = currentUser && entry.player_id === currentUser.id;
 
-                        ctx.fillStyle = isCurrentUser ? '#FFE135' : '#FFF';
-                        ctx.font = isCurrentUser ? 'bold 18px monospace' : '18px monospace';
+                        ctx.fillStyle = isCurrentUser ? DS.colors.primary : DS.colors.white;
+                        ctx.font = DS.font('body', isCurrentUser ? 'bold' : 'normal');
 
                         ctx.textAlign = 'left';
-                        ctx.fillText(`#${i + 1}`, canvas.width / 2 - 180, y);
-                        ctx.fillText(entry.username || 'Anonymous', canvas.width / 2 - 100, y);
+                        ctx.fillText(`#${i + 1}`, colRank, y);
+                        ctx.fillText(entry.username || 'Anonymous', colPlayer, y);
                         ctx.textAlign = 'right';
-                        ctx.fillText(entry.high_score?.toString() || '0', canvas.width / 2 + 180, y);
+                        ctx.fillText(entry.high_score?.toString() || '0', colScore, y);
                     });
                 }
 
-                // Back button
-                drawMenuButtons([{ label: 'BACK TO MENU', action: 'back', primary: true }], canvas.height - 120);
-
             } else if (gameState === 'lobby') {
                 // Lobby screen
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#FFE135';
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 42px monospace';
-                ctx.fillText('MULTIPLAYER LOBBY', canvas.width / 2, 80);
+                // Header with back button
+                const header = drawHeader('MULTIPLAYER LOBBY', true);
+                addClickable({ ...header.backBounds, action: 'leave_lobby' });
+
+                const centerX = canvas.width / 2;
+                let contentY = header.height + DS.spacing.lg;
 
                 if (currentLobby) {
-                    // Show lobby code
-                    ctx.fillStyle = '#AAA';
-                    ctx.font = '18px monospace';
-                    ctx.fillText('Lobby Code:', canvas.width / 2, 130);
-                    ctx.fillStyle = '#FFE135';
-                    ctx.font = 'bold 32px monospace';
-                    ctx.fillText(currentLobby.code, canvas.width / 2, 170);
+                    // Lobby code panel
+                    const codePanelWidth = Math.min(300, canvas.width - DS.spacing.xl * 2);
+                    const codePanelHeight = DS.fontSize('body') + DS.fontSize('h2') + DS.spacing.lg * 2;
+                    drawPanel(centerX, contentY, codePanelWidth, codePanelHeight, { centered: true });
 
-                    // Show land
-                    ctx.fillStyle = '#888';
-                    ctx.font = '16px monospace';
-                    ctx.fillText(`Land: ${lands[selectedLand].name}`, canvas.width / 2, 210);
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('small');
+                    ctx.fillText('Lobby Code', centerX, contentY + DS.spacing.md + DS.fontSize('small') / 2);
+                    ctx.fillStyle = DS.colors.primary;
+                    ctx.font = DS.font('h2', 'bold');
+                    ctx.fillText(currentLobby.code, centerX, contentY + DS.spacing.md + DS.fontSize('small') + DS.spacing.sm + DS.fontSize('h2') / 2);
+                    contentY += codePanelHeight + DS.spacing.md;
 
-                    // Show players
-                    ctx.fillStyle = '#FFF';
-                    ctx.font = 'bold 24px monospace';
-                    ctx.fillText('Players:', canvas.width / 2, 270);
+                    // Land info
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('small');
+                    ctx.fillText(`Land: ${lands[selectedLand].name}`, centerX, contentY);
+                    contentY += DS.fontSize('small') + DS.spacing.lg;
 
-                    const playerStartY = 310;
-                    lobbyPlayers.forEach((player, i) => {
-                        const y = playerStartY + i * 50;
-                        const isMe = currentUser && player.player_id === currentUser.id;
-                        const username = player.profiles?.username || 'Player';
+                    // Players section
+                    contentY = drawSectionTitle('PLAYERS', contentY);
 
-                        ctx.fillStyle = isMe ? '#FFE135' : '#FFF';
-                        ctx.font = isMe ? 'bold 20px monospace' : '20px monospace';
-                        ctx.fillText(username + (isMe ? ' (You)' : ''), canvas.width / 2 - 60, y);
+                    const playerRowHeight = Math.max(40, DS.fontSize('body') + DS.spacing.md);
+                    lobbyPlayers.forEach((p, i) => {
+                        const y = contentY + i * playerRowHeight;
+                        const isMe = currentUser && p.player_id === currentUser.id;
+                        const username = p.profiles?.username || 'Player';
+
+                        ctx.fillStyle = isMe ? DS.colors.primary : DS.colors.white;
+                        ctx.font = DS.font('body', isMe ? 'bold' : 'normal');
+                        ctx.textAlign = 'center';
+                        ctx.fillText(username + (isMe ? ' (You)' : ''), centerX - 60, y + playerRowHeight / 2);
 
                         // Ready status
-                        ctx.fillStyle = player.is_ready ? '#4CAF50' : '#888';
-                        ctx.fillText(player.is_ready ? 'READY' : 'NOT READY', canvas.width / 2 + 100, y);
+                        ctx.fillStyle = p.is_ready ? DS.colors.success : DS.colors.textMuted;
+                        ctx.font = DS.font('small', 'bold');
+                        ctx.fillText(p.is_ready ? 'READY' : 'NOT READY', centerX + 100, y + playerRowHeight / 2);
                     });
+                    contentY += lobbyPlayers.length * playerRowHeight + DS.spacing.md;
 
-                    // Waiting for players message
+                    // Waiting message
                     if (lobbyPlayers.length < 2) {
-                        ctx.fillStyle = '#888';
-                        ctx.font = '18px monospace';
-                        ctx.fillText('Waiting for opponent...', canvas.width / 2, playerStartY + 100);
+                        ctx.fillStyle = DS.colors.textMuted;
+                        ctx.font = DS.font('body');
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Waiting for opponent...', centerX, contentY);
                     }
 
-                    // Ready button and leave button
-                    const currentPlayer = lobbyPlayers.find(p => currentUser && p.player_id === currentUser.id);
-                    const isReady = currentPlayer?.is_ready || false;
+                    // Ready button
+                    const currentPlayerObj = lobbyPlayers.find(p => currentUser && p.player_id === currentUser.id);
+                    const isReady = currentPlayerObj?.is_ready || false;
 
-                    drawMenuButtons([
-                        { label: isReady ? 'NOT READY' : 'READY UP!', action: 'ready', primary: !isReady },
-                        { label: 'LEAVE LOBBY', action: 'leave_lobby', primary: false }
-                    ], canvas.height - 180);
+                    const btnWidth = Math.min(220, canvas.width - DS.spacing.xl * 2);
+                    const btnHeight = DS.button.height();
+                    const btnY = canvas.height - DS.spacing.xl - btnHeight * 2 - DS.spacing.md;
+
+                    const readyBounds = drawStyledButton(centerX, btnY, btnWidth, btnHeight, isReady ? 'NOT READY' : 'READY UP!', { action: 'ready', primary: !isReady });
+                    addClickable(readyBounds);
+
+                    const leaveBounds = drawStyledButton(centerX, btnY + btnHeight + DS.spacing.md, btnWidth, btnHeight, 'LEAVE LOBBY', { action: 'leave_lobby', primary: false });
+                    addClickable(leaveBounds);
 
                     // Instructions
                     if (lobbyPlayers.length === 2) {
-                        ctx.fillStyle = '#4CAF50';
-                        ctx.font = '16px monospace';
-                        ctx.fillText('Both players ready = Game starts!', canvas.width / 2, canvas.height - 40);
+                        ctx.fillStyle = DS.colors.success;
+                        ctx.font = DS.font('small');
+                        ctx.fillText('Both players ready = Game starts!', centerX, canvas.height - DS.spacing.md);
                     }
                 } else {
-                    ctx.fillStyle = '#AAA';
-                    ctx.font = '20px monospace';
-                    ctx.fillText('Creating lobby...', canvas.width / 2, canvas.height / 2);
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('body');
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Creating lobby...', centerX, canvas.height / 2);
                 }
 
             } else if (gameState === 'playing') {
@@ -2224,51 +2603,153 @@
                 });
 
                 // Dark overlay
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+                const centerX = canvas.width / 2;
+                let y = canvas.height * 0.15;
                 ctx.textAlign = 'center';
 
                 // Show multiplayer result
                 if (gameMode === 'multiplayer' && gameResult) {
-                    const resultColors = { win: '#4CAF50', lose: '#E53935', tie: '#FFE135' };
+                    const resultColors = { win: DS.colors.success, lose: DS.colors.error, tie: DS.colors.primary };
                     const resultText = { win: 'YOU WIN!', lose: 'YOU LOSE!', tie: 'TIE GAME!' };
 
                     ctx.fillStyle = resultColors[gameResult];
-                    ctx.font = 'bold 56px monospace';
-                    ctx.fillText(resultText[gameResult], canvas.width / 2, canvas.height / 2 - 120);
+                    ctx.font = DS.font('h1', 'bold');
+                    ctx.fillText(resultText[gameResult], centerX, y);
+                    y += DS.fontSize('h1') + DS.spacing.lg;
 
-                    ctx.fillStyle = '#FFF';
-                    ctx.font = 'bold 28px monospace';
-                    ctx.fillText(`Your Score: ${score}`, canvas.width / 2, canvas.height / 2 - 60);
+                    ctx.fillStyle = DS.colors.white;
+                    ctx.font = DS.font('h3', 'bold');
+                    ctx.fillText(`Your Score: ${score}`, centerX, y);
+                    y += DS.fontSize('h3') + DS.spacing.md;
 
-                    ctx.fillStyle = '#E53935';
-                    ctx.fillText(`Opponent: ${opponentScore}`, canvas.width / 2, canvas.height / 2 - 25);
+                    ctx.fillStyle = DS.colors.error;
+                    ctx.fillText(`Opponent: ${opponentScore}`, centerX, y);
+                    y += DS.fontSize('h3') + DS.spacing.lg;
                 } else {
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.font = 'bold 48px monospace';
-                    ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 100);
+                    ctx.fillStyle = DS.colors.white;
+                    ctx.font = DS.font('h1', 'bold');
+                    ctx.fillText('Game Over', centerX, y);
+                    y += DS.fontSize('h1') + DS.spacing.md;
 
-                    ctx.font = 'bold 32px monospace';
-                    ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 - 50);
+                    // Your score panel
+                    const panelWidth = Math.min(340, canvas.width - DS.spacing.lg * 2);
+                    const yourScorePanelHeight = DS.fontSize('h2') + DS.fontSize('small') + DS.spacing.lg;
+                    drawPanel(centerX, y, panelWidth, yourScorePanelHeight, { centered: true });
+
+                    ctx.fillStyle = DS.colors.primary;
+                    ctx.font = DS.font('h2', 'bold');
+                    ctx.fillText(score.toString(), centerX, y + DS.spacing.md + DS.fontSize('h2') / 2);
+
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('small');
+                    ctx.fillText(`${bananasCollected} bananas collected`, centerX, y + DS.spacing.md + DS.fontSize('h2') + DS.spacing.xs);
+                    y += yourScorePanelHeight + DS.spacing.md;
+
+                    // New high score notification
+                    if (currentUser && userProfile && score > (userProfile.high_score || 0)) {
+                        ctx.fillStyle = DS.colors.primary;
+                        ctx.font = DS.font('body', 'bold');
+                        ctx.fillText('NEW PERSONAL BEST!', centerX, y);
+                        y += DS.fontSize('body') + DS.spacing.sm;
+                    }
+
+                    // Stats comparison section
+                    if (!gameOverStats.loading && supabaseClient) {
+                        const statsRowHeight = DS.fontSize('small') + DS.spacing.sm;
+                        const statsPanelHeight = statsRowHeight * 3 + DS.spacing.md * 2;
+                        const currentLandName = lands[selectedLand].name;
+
+                        y += DS.spacing.sm;
+                        drawPanel(centerX, y, panelWidth, statsPanelHeight, { centered: true });
+
+                        const statsX = centerX - panelWidth / 2 + DS.spacing.md;
+                        const statsRightX = centerX + panelWidth / 2 - DS.spacing.md;
+                        let statsY = y + DS.spacing.md + statsRowHeight / 2;
+
+                        // Global top score
+                        ctx.textAlign = 'left';
+                        ctx.fillStyle = DS.colors.textSecondary;
+                        ctx.font = DS.font('small');
+                        ctx.fillText('Global Best', statsX, statsY);
+                        ctx.textAlign = 'right';
+                        if (gameOverStats.isNewGlobalBest) {
+                            ctx.fillStyle = DS.colors.success;
+                            ctx.font = DS.font('small', 'bold');
+                            ctx.fillText('NEW RECORD!', statsRightX, statsY);
+                        } else if (gameOverStats.globalTopScore !== null) {
+                            ctx.fillStyle = DS.colors.white;
+                            ctx.font = DS.font('small', 'bold');
+                            ctx.fillText(`${gameOverStats.globalTopScore} by ${gameOverStats.globalTopPlayer}`, statsRightX, statsY);
+                        }
+                        statsY += statsRowHeight;
+
+                        // Biome top score
+                        ctx.textAlign = 'left';
+                        ctx.fillStyle = DS.colors.textSecondary;
+                        ctx.font = DS.font('small');
+                        ctx.fillText(`${currentLandName} Best`, statsX, statsY);
+                        ctx.textAlign = 'right';
+                        if (gameOverStats.biomeTopScore !== null) {
+                            const isNewBiomeRecord = score > gameOverStats.biomeTopScore;
+                            if (isNewBiomeRecord) {
+                                ctx.fillStyle = DS.colors.success;
+                                ctx.font = DS.font('small', 'bold');
+                                ctx.fillText('NEW RECORD!', statsRightX, statsY);
+                            } else {
+                                ctx.fillStyle = DS.colors.white;
+                                ctx.font = DS.font('small', 'bold');
+                                ctx.fillText(`${gameOverStats.biomeTopScore} by ${gameOverStats.biomeTopPlayer}`, statsRightX, statsY);
+                            }
+                        } else {
+                            ctx.fillStyle = DS.colors.success;
+                            ctx.font = DS.font('small', 'bold');
+                            ctx.fillText('FIRST SCORE!', statsRightX, statsY);
+                        }
+                        statsY += statsRowHeight;
+
+                        // Personal biome best
+                        if (currentUser) {
+                            ctx.textAlign = 'left';
+                            ctx.fillStyle = DS.colors.textSecondary;
+                            ctx.font = DS.font('small');
+                            ctx.fillText(`Your ${currentLandName} Best`, statsX, statsY);
+                            ctx.textAlign = 'right';
+                            if (gameOverStats.isNewBiomeBest) {
+                                ctx.fillStyle = DS.colors.success;
+                                ctx.font = DS.font('small', 'bold');
+                                ctx.fillText('NEW!', statsRightX, statsY);
+                            } else if (gameOverStats.personalBiomeBest !== null) {
+                                ctx.fillStyle = DS.colors.white;
+                                ctx.font = DS.font('small', 'bold');
+                                ctx.fillText(gameOverStats.personalBiomeBest.toString(), statsRightX, statsY);
+                            }
+                        }
+
+                        y += statsPanelHeight + DS.spacing.md;
+                    } else if (gameOverStats.loading) {
+                        ctx.fillStyle = DS.colors.textMuted;
+                        ctx.font = DS.font('small');
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Loading stats...', centerX, y + DS.spacing.md);
+                        y += DS.fontSize('small') + DS.spacing.lg;
+                    }
                 }
 
-                ctx.fillStyle = '#FFF';
-                ctx.font = 'bold 24px monospace';
-                ctx.fillText(`Bananas: ${bananasCollected}`, canvas.width / 2, canvas.height / 2 + 10);
+                // Land selection instruction
+                ctx.textAlign = 'center';
+                y = drawSectionTitle('SELECT LAND & TAP TO PLAY', y);
+                drawLandButtons(y, false);
+                y += Math.max(44, Math.round(canvas.width * 0.055)) + DS.spacing.lg; // Land button height + spacing
 
-                // Show high score notification
-                if (currentUser && userProfile && score > (userProfile.high_score || 0)) {
-                    ctx.fillStyle = '#FFE135';
-                    ctx.font = 'bold 20px monospace';
-                    ctx.fillText('NEW HIGH SCORE!', canvas.width / 2, canvas.height / 2 + 45);
-                }
-
-                ctx.font = '18px monospace';
-                ctx.fillStyle = '#AAA';
-                ctx.fillText('Select land and tap to play again:', canvas.width / 2, canvas.height / 2 + 80);
-
-                drawLandButtons(canvas.height / 2 + 100, false);
+                // Back to menu button
+                const menuBtnWidth = Math.min(180, canvas.width - DS.spacing.xl * 2);
+                const menuBtnHeight = Math.max(40, DS.button.height() * 0.8);
+                const menuBtnBounds = drawStyledButton(centerX, y, menuBtnWidth, menuBtnHeight, 'MENU', { action: 'back', primary: false });
+                addClickable(menuBtnBounds);
             }
 
             // Draw notifications on top of everything
