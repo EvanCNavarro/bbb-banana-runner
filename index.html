@@ -6085,9 +6085,8 @@
 
                 if (useAnimal) {
                     // Animal obstacles are double-wide, spawn as single unit
-                    // TURTLE TIME: Use turtle sprite if active, otherwise animal
-                    const pixels = turtleActive ? sprites.turtleObstacle : land.animalObstacle;
-                    const animalColors = turtleActive ? colors.turtleObstacle : land.animalObstacleColors;
+                    const pixels = land.animalObstacle;
+                    const animalColors = land.animalObstacleColors;
                     // LION ROAR: Shrink obstacles to 80% if active (20% reduction)
                     const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
                     const h = pixels.length * scale;
@@ -6179,9 +6178,8 @@
                         consecutiveSameCount = 0;
                     }
                     lastObstacleCount = obstacleCount;
-                    // TURTLE TIME: Use turtle sprite if active, otherwise land obstacle
-                    const pixels = turtleActive ? sprites.turtleObstacle : land.obstacle;
-                    const obstacleColors = turtleActive ? colors.turtleObstacle : land.obstacleColors;
+                    const pixels = land.obstacle;
+                    const obstacleColors = land.obstacleColors;
                     // LION ROAR: Shrink obstacles to 80% if active (20% reduction)
                     const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
                     const w = pixels[0].length * scale;
@@ -6793,7 +6791,7 @@
                                 entities.splice(i, 1);
                                 continue;
                             } else if (ent.powerupType === 'turtle' && !turtleActive) {
-                                // Activate Turtle Time!
+                                // Activate Turtle Time! (slow-mo effect only)
                                 turtleActive = true;
                                 turtleTimer = TIME_BUFF_DURATION; // 7 seconds
 
@@ -6801,14 +6799,6 @@
                                 turtleEmojiActive = true;
                                 turtleEmojiTimer = TURTLE_EMOJI_DURATION;
                                 turtleEmojiScale = 1;
-
-                                // Transform ALL existing obstacles into turtles!
-                                entities.forEach(entity => {
-                                    if (entity.type === 'obstacle') {
-                                        entity.pixels = sprites.turtleObstacle;
-                                        entity.colors = colors.turtleObstacle;
-                                    }
-                                });
 
                                 // Track turtle collection
                                 sessionTurtlesCollected++;
