@@ -1884,6 +1884,116 @@
             }
         }
 
+        /**
+         * Retroactively check all achievements against current player stats.
+         * Fetches fresh data from database, checks each incomplete achievement,
+         * and unlocks any that should have been earned.
+         *
+         * @returns {Promise<{checked: number, unlocked: number, newRewards: number}>}
+         */
+        async function checkAllAchievementsRetroactive() {
+            if (!currentUser || !supabaseClient) {
+                return { checked: 0, unlocked: 0, newRewards: 0 };
+            }
+
+            // Fetch fresh profile data from database
+            const { data: profile, error } = await supabaseClient
+                .from('profiles')
+                .select('*')
+                .eq('id', currentUser.id)
+                .single();
+
+            if (error || !profile) {
+                console.error('Error fetching profile for achievement check:', error);
+                return { checked: 0, unlocked: 0, newRewards: 0 };
+            }
+
+            // Update local state with fresh data
+            Object.assign(playerStats, {
+                total_games: profile.total_games || 0,
+                high_score: profile.high_score || 0,
+                total_score: profile.total_score || 0,
+                total_bananas: profile.total_bananas || 0,
+                spendable_bananas: profile.spendable_bananas || 0,
+                total_time_played: profile.total_time_played || 0,
+                jetpacks_collected: profile.jetpacks_collected || 0,
+                dino_stomps_collected: profile.dino_stomps_collected || 0,
+                snow_games_played: profile.snow_games_played || 0,
+                desert_games_played: profile.desert_games_played || 0,
+                jungle_games_played: profile.jungle_games_played || 0,
+                ocean_games_played: profile.ocean_games_played || 0,
+                highest_level_reached: profile.highest_level_reached || 0,
+                times_reached_rank_one: profile.times_reached_rank_one || 0,
+                total_purchases: profile.total_purchases || 0,
+                total_spent: profile.total_spent || 0
+            });
+
+            // Also update userProfile
+            if (userProfile) {
+                Object.assign(userProfile, profile);
+            }
+            spendableBananas = profile.spendable_bananas || 0;
+
+            // Build stats object for checking
+            const stats = {
+                total_games: playerStats.total_games,
+                high_score: playerStats.high_score,
+                total_bananas: playerStats.total_bananas,
+                total_time_played: playerStats.total_time_played,
+                jetpacks_collected: playerStats.jetpacks_collected,
+                dino_stomps_collected: playerStats.dino_stomps_collected,
+                highest_level_reached: playerStats.highest_level_reached,
+                snow_games_played: playerStats.snow_games_played,
+                desert_games_played: playerStats.desert_games_played,
+                jungle_games_played: playerStats.jungle_games_played,
+                ocean_games_played: playerStats.ocean_games_played,
+                times_reached_rank_one: playerStats.times_reached_rank_one,
+                total_purchases: playerStats.total_purchases,
+                multiplayer_games: playerStats.multiplayer_games || 0,
+                multiplayer_wins: playerStats.multiplayer_wins || 0,
+                // Check if all 4 lands have been played
+                all_lands_played: (playerStats.snow_games_played > 0) &&
+                                   (playerStats.desert_games_played > 0) &&
+                                   (playerStats.jungle_games_played > 0) &&
+                                   (playerStats.ocean_games_played > 0)
+            };
+
+            let checked = 0;
+            let unlocked = 0;
+            let newRewards = 0;
+
+            // Check each achievement that isn't already unlocked
+            for (const [achievementId, achievement] of Object.entries(ACHIEVEMENTS)) {
+                if (unlockedAchievements.includes(achievementId)) continue;
+
+                checked++;
+                const req = achievement.requirement;
+                if (!req) continue;
+
+                let shouldUnlock = false;
+
+                // Special handling for all_lands_played
+                if (req.type === 'all_lands_played') {
+                    shouldUnlock = stats.all_lands_played;
+                }
+                // Standard numeric comparisons
+                else if (stats[req.type] !== undefined) {
+                    shouldUnlock = stats[req.type] >= req.value;
+                }
+
+                if (shouldUnlock) {
+                    await unlockAchievement(achievementId);
+                    unlocked++;
+                    newRewards += achievement.reward || 0;
+                }
+            }
+
+            // Also check skin unlocks
+            checkSkinUnlocks(playerStats.high_score, 0);
+
+            return { checked, unlocked, newRewards };
+        }
+
         // Notification system
         let notifications = [];
 
@@ -4295,13 +4405,6 @@
                 requirement: { type: 'times_reached_rank_one', value: 1 },
                 category: 'leaderboard'
             },
-            reigning_champion: {
-                name: 'Reigning Champion',
-                description: 'Reach #1 on the leaderboard 5 times!',
-                reward: 250,
-                requirement: { type: 'times_reached_rank_one', value: 5 },
-                category: 'leaderboard'
-            },
 
             // =====================================
             // SHOP/PURCHASES
@@ -4444,6 +4547,10 @@
         let achievementsLastTime = 0;
         let achievementsDragDistance = 0;
 
+        // Achievement check state
+        let isCheckingAchievements = false;
+        let lastAchievementCheckResult = null; // { checked, unlocked, newRewards }
+
         // Jump buffering - stores timestamp of last jump attempt
         // JUMP_BUFFER_MS imported from config.js
         let jumpBufferTime = 0;
@@ -4574,6 +4681,20 @@
                     gameState = 'achievements';
                     achievementsScrollY = 0;  // Reset scroll when entering achievements
                     achievementsScrollVel = 0;
+                    lastAchievementCheckResult = null; // Clear previous check result
+                    break;
+                case 'check_achievements':
+                    if (!isCheckingAchievements && currentUser) {
+                        isCheckingAchievements = true;
+                        lastAchievementCheckResult = null;
+                        checkAllAchievementsRetroactive().then(result => {
+                            lastAchievementCheckResult = result;
+                            isCheckingAchievements = false;
+                        }).catch(err => {
+                            console.error('Error checking achievements:', err);
+                            isCheckingAchievements = false;
+                        });
+                    }
                     break;
                 case 'login':
                     showAuthModal();
@@ -6097,6 +6218,39 @@
                 ctx.font = DS.font('small');
                 ctx.fillText(`+${totalBananasEarned} bananas earned from achievements`, centerX, contentY + DS.spacing.md + DS.fontSize('body') + DS.spacing.sm);
                 contentY += summaryHeight + DS.spacing.md;
+
+                // Check Achievements button
+                const checkBtnWidth = Math.min(200, canvas.width - DS.spacing.lg * 2);
+                const checkBtnHeight = 40;
+                const checkBtnText = isCheckingAchievements ? 'CHECKING...' : 'CHECK ACHIEVEMENTS';
+                const checkBtnBounds = drawStyledButton(
+                    centerX, contentY + checkBtnHeight / 2,
+                    checkBtnWidth, checkBtnHeight,
+                    checkBtnText,
+                    { action: 'check_achievements', primary: false, disabled: isCheckingAchievements }
+                );
+                if (!isCheckingAchievements) {
+                    addClickable(checkBtnBounds);
+                }
+                contentY += checkBtnHeight + DS.spacing.sm;
+
+                // Show result of last check
+                if (lastAchievementCheckResult) {
+                    ctx.textAlign = 'center';
+                    if (lastAchievementCheckResult.unlocked > 0) {
+                        ctx.fillStyle = DS.colors.success;
+                        ctx.font = DS.font('small', 'bold');
+                        ctx.fillText(
+                            `Unlocked ${lastAchievementCheckResult.unlocked} achievement${lastAchievementCheckResult.unlocked > 1 ? 's' : ''}! +${lastAchievementCheckResult.newRewards} bananas`,
+                            centerX, contentY
+                        );
+                    } else {
+                        ctx.fillStyle = DS.colors.textMuted;
+                        ctx.font = DS.font('small');
+                        ctx.fillText('All achievements up to date', centerX, contentY);
+                    }
+                    contentY += DS.fontSize('small') + DS.spacing.sm;
+                }
 
                 // Scrollable achievements list
                 const scrollAreaTop = contentY;
