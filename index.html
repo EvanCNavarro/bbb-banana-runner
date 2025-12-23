@@ -2005,6 +2005,33 @@
             }
             spendableBananas = profile.spendable_bananas || 0;
 
+            // Check if user is currently #1 on leaderboard (for retroactive achievement)
+            const { data: topPlayer } = await supabaseClient
+                .from('profiles')
+                .select('id, high_score')
+                .order('high_score', { ascending: false })
+                .limit(1)
+                .single();
+
+            // If user is currently #1 and times_reached_rank_one is 0, set it to 1
+            const isCurrentlyRankOne = topPlayer && topPlayer.id === currentUser.id;
+            let timesReachedRankOne = playerStats.times_reached_rank_one || 0;
+
+            if (isCurrentlyRankOne && timesReachedRankOne === 0) {
+                timesReachedRankOne = 1;
+                playerStats.times_reached_rank_one = 1;
+
+                // Also persist this to the database
+                await supabaseClient
+                    .from('profiles')
+                    .update({ times_reached_rank_one: 1 })
+                    .eq('id', currentUser.id);
+
+                if (userProfile) {
+                    userProfile.times_reached_rank_one = 1;
+                }
+            }
+
             // Build stats object for checking
             const stats = {
                 total_games: playerStats.total_games,
@@ -2018,7 +2045,7 @@
                 desert_games_played: playerStats.desert_games_played,
                 jungle_games_played: playerStats.jungle_games_played,
                 ocean_games_played: playerStats.ocean_games_played,
-                times_reached_rank_one: playerStats.times_reached_rank_one,
+                times_reached_rank_one: timesReachedRankOne,
                 total_purchases: playerStats.total_purchases,
                 multiplayer_games: playerStats.multiplayer_games || 0,
                 multiplayer_wins: playerStats.multiplayer_wins || 0,
