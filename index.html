@@ -530,6 +530,10 @@
             // Auto-login after signup (since email confirmation is disabled)
             if (data.session) {
                 // Session already exists, user is logged in
+                // Set user immediately (don't wait for onAuthStateChange)
+                currentUser = data.user;
+                await loadUserProfile();
+                updateUserDisplay();
                 closeAuthModal();
                 return true;
             } else {
@@ -560,6 +564,13 @@
                     showAuthError(error.message);
                 }
                 return false;
+            }
+
+            // Set user immediately (don't wait for onAuthStateChange)
+            if (data.user) {
+                currentUser = data.user;
+                await loadUserProfile();
+                updateUserDisplay();
             }
 
             closeAuthModal();
