@@ -313,8 +313,16 @@
                 }
             }
 
-            showAuthSuccess('Account created! You can now login.');
-            return true;
+            // Auto-login after signup (since email confirmation is disabled)
+            if (data.session) {
+                // Session already exists, user is logged in
+                closeAuthModal();
+                return true;
+            } else {
+                // Manually sign in if no session returned
+                const signInResult = await signIn(username, password);
+                return signInResult;
+            }
         }
 
         async function signIn(username, password) {
