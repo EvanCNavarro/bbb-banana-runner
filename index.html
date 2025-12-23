@@ -825,7 +825,11 @@
                     .update(updates)
                     .eq('id', currentUser.id);
 
-                if (!updateError) {
+                if (updateError) {
+                    console.error('Error updating profile:', updateError);
+                    console.error('Updates attempted:', updates);
+                } else {
+                    console.log('Profile updated successfully. High score:', updates.high_score || 'unchanged');
                     userProfile = { ...userProfile, ...updates };
                     spendableBananas = userProfile.spendable_bananas;  // Update local state
 
@@ -4374,13 +4378,16 @@
         let starColorIndex = 0;
         const RAINBOW_COLORS = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3'];
 
-        // Money - double points
+        // Money - double points earned while active (not total score)
         let moneyActive = false;
         let moneyTimer = 0;
+        let moneyBonusAccumulated = 0; // Extra points earned from 2x multiplier
+        const MONEY_DURATION = 600; // 10 seconds
 
-        // Laser - disco ball destruction beams
+        // Laser - disco ball destruction beams (5 seconds)
         let laserActive = false;
         let laserTimer = 0;
+        const LASER_DURATION = 300; // 5 seconds (half of normal 10s)
         let laserAngle = 0;  // For spinning laser effect
 
         // ============================================
@@ -5983,6 +5990,7 @@
             starColorIndex = 0;
             moneyActive = false;
             moneyTimer = 0;
+            moneyBonusAccumulated = 0;
             laserActive = false;
             laserTimer = 0;
             laserAngle = 0;
@@ -6434,24 +6442,27 @@
                             } else if (ent.powerupType === 'money' && !moneyActive) {
                                 // Activate Double Points!
                                 moneyActive = true;
-                                moneyTimer = TIME_BUFF_DURATION; // 10 seconds
+                                moneyTimer = MONEY_DURATION; // 10 seconds
+                                moneyBonusAccumulated = 0; // Reset bonus tracker
 
                                 // Track money collection
                                 sessionMoneyCollected++;
 
-                                // Award bonus points
-                                powerUpBonusScore += 100;
-                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+                                // Award bonus points (this also gets doubled)
+                                const moneyBonus = 100;
+                                powerUpBonusScore += moneyBonus;
+                                moneyBonusAccumulated += moneyBonus; // Track this bonus
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100 (2X!)');
 
                                 // Announce power-up
-                                triggerAnnouncement('DOUBLE POINTS');
+                                triggerAnnouncement('2X POINTS!');
 
                                 entities.splice(i, 1);
                                 continue;
                             } else if (ent.powerupType === 'laser' && !laserActive) {
                                 // Activate Laser Eyes!
                                 laserActive = true;
-                                laserTimer = TIME_BUFF_DURATION; // 10 seconds
+                                laserTimer = LASER_DURATION; // 5 seconds
                                 laserAngle = 0;
 
                                 // Track laser collection
@@ -6552,8 +6563,18 @@
             // Update score (time survived + banana bonuses + jump bonuses) - but freeze on death in multiplayer
             if (gameMode !== 'multiplayer' || localPlayerAlive) {
                 let baseScore = Math.floor(gameTime / 6) + (bananasCollected * 150) + jumpBonusScore + powerUpBonusScore;
-                // MONEY POWER-UP: Double the score when active
-                score = moneyActive ? baseScore * 2 : baseScore;
+
+                // MONEY POWER-UP: Track bonus points earned while 2x is active
+                // When money is active, we earn bonus points equal to the score increase
+                if (moneyActive) {
+                    const scoreIncrease = baseScore - (score - moneyBonusAccumulated);
+                    if (scoreIncrease > 0) {
+                        moneyBonusAccumulated += scoreIncrease;
+                    }
+                }
+
+                // Final score = base score + money bonus (extra points from 2x)
+                score = baseScore + moneyBonusAccumulated;
             }
 
             scrollOffset = (scrollOffset + speed * gameDelta) % 40; // Use gameDelta for turtle slow-mo
@@ -7685,18 +7706,23 @@
                         };
                         const label = labelMap[ent.powerupType] || 'POWER';
                         const labelX = ent.x + (48 * ent.scale) / 2;
-                        const labelY = ent.y - 8;
+                        const labelY = ent.y - 12;
 
-                        // Background pill for label
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                        ctx.font = 'bold 11px monospace';
+                        // Background pill for label - white with transparency
+                        ctx.font = 'bold 14px monospace';
                         const textWidth = ctx.measureText(label).width;
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
                         ctx.beginPath();
-                        ctx.roundRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 14, 7);
+                        ctx.roundRect(labelX - textWidth / 2 - 8, labelY - 14, textWidth + 16, 20, 10);
                         ctx.fill();
 
-                        // Label text
-                        ctx.fillStyle = '#FFFFFF';
+                        // Subtle border for better visibility
+                        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+
+                        // Label text - dark for contrast on white bg
+                        ctx.fillStyle = '#222222';
                         ctx.textAlign = 'center';
                         ctx.fillText(label, labelX, labelY);
                     } else {
