@@ -3543,6 +3543,13 @@
             const x = (clientX - rect.left) * (canvas.width / rect.width);
             const y = (clientY - rect.top) * (canvas.height / rect.height);
 
+            // Check back button first (top right)
+            if (backButton && pointInButton(x, y, backButton)) {
+                backButton.action();
+                backButton = null; // Clear after use
+                return true;
+            }
+
             // Check design system clickable areas first
             for (const area of clickableAreas) {
                 if (pointInBounds(x, y, area)) {
@@ -4334,6 +4341,37 @@
                 ctx.textAlign = 'center';
                 ctx.fillText(btn.label, x + btnWidth / 2, y + btnHeight / 2 + 6);
             });
+        }
+
+        // Draw back button (top right corner) - unified across screens
+        let backButton = null;
+        function drawBackButton(targetState = 'menu') {
+            const btnWidth = 80;
+            const btnHeight = 40;
+            const x = canvas.width - btnWidth - 20;
+            const y = 20;
+
+            // Store for click detection
+            backButton = { x, y, w: btnWidth, h: btnHeight, action: () => { gameState = targetState; } };
+
+            // Draw button with rounded corners
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.roundRect(x, y, btnWidth, btnHeight, 8);
+            ctx.fill();
+
+            // Border
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Arrow and text
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('← Back', x + btnWidth / 2, y + btnHeight / 2 + 5);
+
+            return backButton;
         }
 
         // Draw land selection buttons
