@@ -8070,17 +8070,21 @@
         const TARGET_FRAME_TIME = 1000 / 60; // 60fps = 16.67ms per frame
 
         function gameLoop(currentTime) {
-            // Calculate delta time and normalize to 60fps
-            const deltaTime = currentTime - lastFrameTime;
-            lastFrameTime = currentTime;
+            try {
+                // Calculate delta time and normalize to 60fps
+                const deltaTime = currentTime - lastFrameTime;
+                lastFrameTime = currentTime;
 
-            // Delta multiplier: 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
-            // Clamped to prevent extreme values on tab switch or lag spikes
-            const delta = Math.min(Math.max(deltaTime / TARGET_FRAME_TIME, 0.1), 3);
+                // Delta multiplier: 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
+                // Clamped to prevent extreme values on tab switch or lag spikes
+                const delta = Math.min(Math.max(deltaTime / TARGET_FRAME_TIME, 0.1), 3);
 
-            update(delta);
-            updateShopScroll();
-            draw();
+                update(delta);
+                updateShopScroll();
+                draw();
+            } catch (err) {
+                console.error('Game loop error:', err);
+            }
             requestAnimationFrame(gameLoop);
         }
 
