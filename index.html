@@ -848,7 +848,7 @@
                 .insert({
                     lobby_id: lobbyId,
                     player_id: currentUser.id,
-                    is_ready: false
+                    is_ready: true  // Joining = ready (no toggle needed)
                 });
 
             if (error) {
@@ -887,22 +887,23 @@
             const { data, error } = await supabaseClient
                 .from('lobby_players')
                 .select('*, profiles:player_id(username)')
-                .eq('lobby_id', lobbyId);
+                .eq('lobby_id', lobbyId)
+                .order('joined_at', { ascending: true });
 
             if (data) {
                 lobbyPlayers = data;
 
-                // Auto-start when 2 players are ready (host triggers)
-                if (isLobbyHost && lobbyPlayers.length === 2) {
-                    const allReady = lobbyPlayers.every(p => p.is_ready);
-                    if (allReady) {
-                        await startLobbyGame();
-                    }
+                // Calculate local player index for multiplayer rendering
+                const myIndex = data.findIndex(p => currentUser && p.player_id === currentUser.id);
+                if (myIndex !== -1) {
+                    localPlayerIndex = myIndex;
                 }
             }
         }
 
+        // toggleReady is no longer needed - joining = ready
         async function toggleReady() {
+            // Deprecated - kept for compatibility
             if (!supabaseClient || !currentUser || !currentLobby) return;
 
             const currentPlayer = lobbyPlayers.find(p => p.player_id === currentUser.id);
@@ -1002,6 +1003,144 @@
             lobbyPlayers = [];
             isLobbyHost = false;
             gameState = 'menu';
+        }
+
+        // New multiplayer functions for Create/Join flow
+        async function createNewLobby() {
+            if (!supabaseClient || !currentUser) return;
+
+            const code = generateLobbyCode();
+            const { data, error } = await supabaseClient
+                .from('game_lobbies')
+                .insert({
+                    code: code,
+                    host_id: currentUser.id,
+                    land: selectedLand,
+                    status: 'waiting'
+                })
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error creating lobby:', error);
+                return;
+            }
+
+            currentLobby = data;
+            isLobbyHost = true;
+            await joinLobbyAsPlayer(currentLobby.id);
+            subscribeLobbyUpdates(currentLobby.id);
+            gameState = 'lobby';
+        }
+
+        function generateLobbyCode() {
+            return Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        async function joinLobbyWithCode() {
+            if (!supabaseClient || !currentUser || !lobbyCodeInput) {
+                lobbyJoinError = 'Please enter a lobby code';
+                return;
+            }
+
+            const code = lobbyCodeInput.toUpperCase().trim();
+            if (code.length !== 6) {
+                lobbyJoinError = 'Code must be 6 characters';
+                return;
+            }
+
+            // Find lobby by code
+            const { data: lobby, error } = await supabaseClient
+                .from('game_lobbies')
+                .select('*')
+                .eq('code', code)
+                .eq('status', 'waiting')
+                .single();
+
+            if (error || !lobby) {
+                lobbyJoinError = 'Lobby not found or game already started';
+                return;
+            }
+
+            // Check if lobby is full
+            const { data: players } = await supabaseClient
+                .from('lobby_players')
+                .select('id')
+                .eq('lobby_id', lobby.id);
+
+            if (players && players.length >= MAX_LOBBY_PLAYERS) {
+                lobbyJoinError = 'Lobby is full (max 7 players)';
+                return;
+            }
+
+            // Join the lobby
+            currentLobby = lobby;
+            isLobbyHost = false;
+            selectedLand = lobby.land;
+            await joinLobbyAsPlayer(currentLobby.id);
+            subscribeLobbyUpdates(currentLobby.id);
+            lobbyJoinError = '';
+            gameState = 'lobby';
+        }
+
+        async function hostStartGame() {
+            if (!supabaseClient || !currentLobby || !isLobbyHost) return;
+            if (lobbyPlayers.length < 2) return;
+
+            await supabaseClient
+                .from('game_lobbies')
+                .update({ status: 'playing' })
+                .eq('id', currentLobby.id);
+        }
+
+        async function hostPlayAgain() {
+            if (!supabaseClient || !currentLobby || !isLobbyHost) return;
+
+            // Reset game state and broadcast to all players
+            await supabaseClient
+                .from('game_lobbies')
+                .update({ status: 'playing' })
+                .eq('id', currentLobby.id);
+
+            // Broadcast play again signal
+            if (gameChannel) {
+                gameChannel.send({
+                    type: 'broadcast',
+                    event: 'play_again',
+                    payload: { startTime: Date.now() + 1000 }
+                });
+            }
+
+            // Start locally
+            resetMultiplayerGame();
+        }
+
+        function leaveMultiplayerResults() {
+            // Clean up and go to menu
+            if (gameChannel) {
+                supabaseClient.removeChannel(gameChannel);
+                gameChannel = null;
+            }
+            if (lobbySubscription) {
+                supabaseClient.removeChannel(lobbySubscription);
+                lobbySubscription = null;
+            }
+            currentLobby = null;
+            lobbyPlayers = [];
+            isLobbyHost = false;
+            multiplayerPlayers = [];
+            allPlayersStates = {};
+            gameMode = 'solo';
+            gameState = 'menu';
+        }
+
+        function resetMultiplayerGame() {
+            // Reset local state for new round
+            localPlayerAlive = true;
+            multiplayerPlayers = [];
+            allPlayersStates = {};
+            gameResult = null;
+            startGame();
         }
 
         // ============================================
@@ -1905,6 +2044,18 @@
         let lobbyPlayers = [];
         let lobbySubscription = null;
         let isLobbyHost = false;
+        let lobbyCodeInput = '';
+        let lobbyJoinError = '';
+        const MAX_LOBBY_PLAYERS = 7;
+
+        // Multiplayer game state
+        let multiplayerPlayers = [];  // All players' states for rendering
+        let localPlayerIndex = 0;     // My position in the player order
+        let localPlayerAlive = true;  // Am I still alive?
+        let allPlayersStates = {};    // Track all player states by ID
+        let gameChannel = null;       // Supabase realtime channel for game state
+
+        // Legacy (will be replaced by multiplayerPlayers)
         let opponentScore = 0;
         let opponentBananas = 0;
         let gameResult = null; // 'win', 'lose', 'tie'
@@ -2030,8 +2181,22 @@
                     if (!currentUser) {
                         showAuthModal();
                     } else {
-                        findOrCreateLobby();
+                        gameState = 'multiplayer-menu';
                     }
+                    break;
+                case 'create_lobby':
+                    createNewLobby();
+                    break;
+                case 'show_join':
+                    lobbyCodeInput = '';
+                    lobbyJoinError = '';
+                    gameState = 'join-lobby';
+                    break;
+                case 'join_with_code':
+                    joinLobbyWithCode();
+                    break;
+                case 'start_game':
+                    hostStartGame();
                     break;
                 case 'leaderboard':
                     showLeaderboard();
@@ -2040,13 +2205,36 @@
                     showAuthModal();
                     break;
                 case 'back':
-                    gameState = 'menu';
+                    if (gameState === 'join-lobby' || gameState === 'multiplayer-menu') {
+                        gameState = 'menu';
+                    } else {
+                        gameState = 'menu';
+                    }
                     break;
-                case 'ready':
-                    toggleReady();
+                case 'back_to_mp_menu':
+                    gameState = 'multiplayer-menu';
                     break;
                 case 'leave_lobby':
                     leaveLobby();
+                    break;
+                case 'play_again':
+                    hostPlayAgain();
+                    break;
+                case 'leave_results':
+                    leaveMultiplayerResults();
+                    break;
+                default:
+                    // Handle virtual keyboard keys for lobby code input
+                    if (action.startsWith('key_')) {
+                        const key = action.substring(4);
+                        if (key === 'backspace') {
+                            lobbyCodeInput = lobbyCodeInput.slice(0, -1);
+                            lobbyJoinError = '';
+                        } else if (lobbyCodeInput.length < 6) {
+                            lobbyCodeInput += key;
+                            lobbyJoinError = '';
+                        }
+                    }
                     break;
             }
         }
@@ -2109,11 +2297,18 @@
             }
         });
 
+        // Menu states where clicks are handled as buttons
+        const MENU_STATES = ['welcome', 'menu', 'gameover', 'leaderboard', 'lobby', 'multiplayer-menu', 'join-lobby', 'multiplayer-results'];
+
+        function isMenuState() {
+            return MENU_STATES.includes(gameState);
+        }
+
         // Touch support for mobile
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
-            if (gameState === 'welcome' || gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+            if (isMenuState()) {
                 handleClick(touch.clientX, touch.clientY);
             } else {
                 jump();
@@ -2127,7 +2322,7 @@
         });
 
         canvas.addEventListener('click', (e) => {
-            if (gameState === 'welcome' || gameState === 'menu' || gameState === 'gameover' || gameState === 'leaderboard' || gameState === 'lobby') {
+            if (isMenuState()) {
                 if (!handleClick(e.clientX, e.clientY)) {
                     if (gameState === 'gameover') {
                         startGame();
@@ -2652,6 +2847,129 @@
                     });
                 }
 
+            } else if (gameState === 'multiplayer-menu') {
+                // Multiplayer menu - Create or Join options
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const header = drawHeader('MULTIPLAYER', true);
+                addClickable(header.backBounds);
+
+                const centerX = canvas.width / 2;
+                let y = header.height + DS.spacing.xl * 2;
+
+                // Title
+                ctx.textAlign = 'center';
+                ctx.fillStyle = DS.colors.white;
+                ctx.font = DS.font('h2', 'bold');
+                ctx.fillText('Choose an option', centerX, y);
+                y += DS.fontSize('h2') + DS.spacing.xl;
+
+                const btnWidth = Math.min(280, canvas.width - DS.spacing.lg * 2);
+                const btnHeight = DS.button.height();
+
+                // Create Lobby button
+                const createBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'CREATE LOBBY', { action: 'create_lobby', primary: true });
+                addClickable(createBounds);
+                y += btnHeight + DS.spacing.sm;
+
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small');
+                ctx.fillText('Start a new game and invite friends', centerX, y);
+                y += DS.fontSize('small') + DS.spacing.xl;
+
+                // Join Lobby button
+                const joinBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'JOIN LOBBY', { action: 'show_join', primary: false });
+                addClickable(joinBounds);
+                y += btnHeight + DS.spacing.sm;
+
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small');
+                ctx.fillText('Enter a code to join a friend\'s game', centerX, y);
+
+            } else if (gameState === 'join-lobby') {
+                // Join lobby screen with code input
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const header = drawHeader('JOIN LOBBY', true);
+                addClickable({ ...header.backBounds, action: 'back_to_mp_menu' });
+
+                const centerX = canvas.width / 2;
+                let y = header.height + DS.spacing.xl * 2;
+
+                // Instructions
+                ctx.textAlign = 'center';
+                ctx.fillStyle = DS.colors.white;
+                ctx.font = DS.font('body');
+                ctx.fillText('Enter the 6-character lobby code', centerX, y);
+                y += DS.fontSize('body') + DS.spacing.lg;
+
+                // Code input display (styled as a panel)
+                const inputWidth = 200;
+                const inputHeight = 60;
+                drawPanel(centerX, y, inputWidth, inputHeight, { centered: true });
+
+                ctx.fillStyle = lobbyCodeInput ? DS.colors.primary : DS.colors.textMuted;
+                ctx.font = DS.font('h2', 'bold');
+                ctx.fillText(lobbyCodeInput || '______', centerX, y + inputHeight / 2 + DS.fontSize('h2') / 3);
+                y += inputHeight + DS.spacing.md;
+
+                // Error message
+                if (lobbyJoinError) {
+                    ctx.fillStyle = DS.colors.error || '#E53935';
+                    ctx.font = DS.font('small');
+                    ctx.fillText(lobbyJoinError, centerX, y);
+                    y += DS.fontSize('small') + DS.spacing.md;
+                } else {
+                    y += DS.spacing.md;
+                }
+
+                // Virtual keyboard for code input (simple A-Z, 0-9)
+                const keySize = Math.min(40, (canvas.width - DS.spacing.lg * 2) / 10);
+                const keyGap = 4;
+                const keys = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                const keysPerRow = 9;
+
+                y += DS.spacing.md;
+                for (let i = 0; i < keys.length; i++) {
+                    const row = Math.floor(i / keysPerRow);
+                    const col = i % keysPerRow;
+                    const rowWidth = Math.min(keysPerRow, keys.length - row * keysPerRow) * (keySize + keyGap) - keyGap;
+                    const startX = centerX - rowWidth / 2;
+                    const keyX = startX + col * (keySize + keyGap);
+                    const keyY = y + row * (keySize + keyGap);
+
+                    // Draw key
+                    ctx.fillStyle = DS.colors.bgPanel;
+                    ctx.fillRect(keyX, keyY, keySize, keySize);
+                    ctx.strokeStyle = DS.colors.border;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(keyX, keyY, keySize, keySize);
+
+                    ctx.fillStyle = DS.colors.white;
+                    ctx.font = DS.font('body', 'bold');
+                    ctx.fillText(keys[i], keyX + keySize / 2, keyY + keySize / 2 + DS.fontSize('body') / 3);
+
+                    // Add clickable for key
+                    addClickable({ x: keyX, y: keyY, w: keySize, h: keySize, action: `key_${keys[i]}` });
+                }
+
+                const numRows = Math.ceil(keys.length / keysPerRow);
+                y += numRows * (keySize + keyGap) + DS.spacing.lg;
+
+                // Backspace and Join buttons
+                const btnWidth = Math.min(120, canvas.width / 3);
+                const btnHeight = DS.button.height();
+
+                const backspaceBounds = drawStyledButton(centerX - btnWidth / 2 - DS.spacing.sm, y, btnWidth, btnHeight, '← DELETE', { action: 'key_backspace', primary: false });
+                addClickable(backspaceBounds);
+
+                const joinBounds = drawStyledButton(centerX + btnWidth / 2 + DS.spacing.sm, y, btnWidth, btnHeight, 'JOIN', { action: 'join_with_code', primary: true });
+                addClickable(joinBounds);
+
             } else if (gameState === 'lobby') {
                 // Lobby screen
                 resetClickables();
@@ -2686,54 +3004,84 @@
                     ctx.fillText(`Land: ${lands[selectedLand].name}`, centerX, contentY);
                     contentY += DS.fontSize('small') + DS.spacing.lg;
 
-                    // Players section
-                    contentY = drawSectionTitle('PLAYERS', contentY);
+                    // Players section with count
+                    contentY = drawSectionTitle(`PLAYERS (${lobbyPlayers.length}/${MAX_LOBBY_PLAYERS})`, contentY);
 
                     const playerRowHeight = Math.max(40, DS.fontSize('body') + DS.spacing.md);
-                    lobbyPlayers.forEach((p, i) => {
+                    // Sort players by join order (host first)
+                    const sortedPlayers = [...lobbyPlayers].sort((a, b) => {
+                        // Host always first
+                        if (a.player_id === currentLobby.host_id) return -1;
+                        if (b.player_id === currentLobby.host_id) return 1;
+                        // Then by joined_at
+                        return new Date(a.joined_at) - new Date(b.joined_at);
+                    });
+
+                    sortedPlayers.forEach((p, i) => {
                         const y = contentY + i * playerRowHeight;
                         const isMe = currentUser && p.player_id === currentUser.id;
+                        const isHost = p.player_id === currentLobby.host_id;
                         const username = p.profiles?.username || 'Player';
 
+                        // Player number and name
                         ctx.fillStyle = isMe ? DS.colors.primary : DS.colors.white;
                         ctx.font = DS.font('body', isMe ? 'bold' : 'normal');
-                        ctx.textAlign = 'center';
-                        ctx.fillText(username + (isMe ? ' (You)' : ''), centerX - 60, y + playerRowHeight / 2);
+                        ctx.textAlign = 'left';
+                        const displayName = `${i + 1}. ${username}${isMe ? ' (You)' : ''}`;
+                        ctx.fillText(displayName, centerX - 100, y + playerRowHeight / 2);
 
-                        // Ready status
-                        ctx.fillStyle = p.is_ready ? DS.colors.success : DS.colors.textMuted;
-                        ctx.font = DS.font('small', 'bold');
-                        ctx.fillText(p.is_ready ? 'READY' : 'NOT READY', centerX + 100, y + playerRowHeight / 2);
+                        // Show host badge
+                        if (isHost) {
+                            ctx.fillStyle = DS.colors.primary;
+                            ctx.font = DS.font('small', 'bold');
+                            ctx.textAlign = 'right';
+                            ctx.fillText('HOST', centerX + 100, y + playerRowHeight / 2);
+                        }
                     });
-                    contentY += lobbyPlayers.length * playerRowHeight + DS.spacing.md;
+                    contentY += sortedPlayers.length * playerRowHeight + DS.spacing.md;
 
-                    // Waiting message
+                    // Status message
+                    ctx.textAlign = 'center';
                     if (lobbyPlayers.length < 2) {
                         ctx.fillStyle = DS.colors.textMuted;
                         ctx.font = DS.font('body');
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Waiting for opponent...', centerX, contentY);
+                        ctx.fillText('Waiting for players to join...', centerX, contentY);
+                        ctx.font = DS.font('small');
+                        ctx.fillText('Share the lobby code above!', centerX, contentY + DS.fontSize('body') + DS.spacing.xs);
+                    } else if (!isLobbyHost) {
+                        ctx.fillStyle = DS.colors.textSecondary;
+                        ctx.font = DS.font('body');
+                        ctx.fillText('Waiting for host to start...', centerX, contentY);
                     }
 
-                    // Ready button
-                    const currentPlayerObj = lobbyPlayers.find(p => currentUser && p.player_id === currentUser.id);
-                    const isReady = currentPlayerObj?.is_ready || false;
-
+                    // Buttons
                     const btnWidth = Math.min(220, canvas.width - DS.spacing.xl * 2);
                     const btnHeight = DS.button.height();
                     const btnY = canvas.height - DS.spacing.xl - btnHeight * 2 - DS.spacing.md;
 
-                    const readyBounds = drawStyledButton(centerX, btnY, btnWidth, btnHeight, isReady ? 'NOT READY' : 'READY UP!', { action: 'ready', primary: !isReady });
-                    addClickable(readyBounds);
+                    // Host sees START GAME, others see nothing (just waiting)
+                    if (isLobbyHost) {
+                        const canStart = lobbyPlayers.length >= 2;
+                        const startBounds = drawStyledButton(centerX, btnY, btnWidth, btnHeight, 'START GAME', {
+                            action: canStart ? 'start_game' : null,
+                            primary: canStart,
+                            disabled: !canStart
+                        });
+                        if (canStart) {
+                            addClickable(startBounds);
+                        }
+                    }
 
                     const leaveBounds = drawStyledButton(centerX, btnY + btnHeight + DS.spacing.md, btnWidth, btnHeight, 'LEAVE LOBBY', { action: 'leave_lobby', primary: false });
                     addClickable(leaveBounds);
 
-                    // Instructions
-                    if (lobbyPlayers.length === 2) {
+                    // Instructions at bottom
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('small');
+                    ctx.textAlign = 'center';
+                    if (isLobbyHost && lobbyPlayers.length >= 2) {
                         ctx.fillStyle = DS.colors.success;
-                        ctx.font = DS.font('small');
-                        ctx.fillText('Both players ready = Game starts!', centerX, canvas.height - DS.spacing.md);
+                        ctx.fillText('Ready to start! Click START GAME', centerX, canvas.height - DS.spacing.md);
                     }
                 } else {
                     ctx.fillStyle = DS.colors.textSecondary;
