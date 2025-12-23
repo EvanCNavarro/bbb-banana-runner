@@ -6138,11 +6138,12 @@
                             // Show floating text (+150 for single, +300 for bundle)
                             const pointsGained = bananaValue * 150;
                             spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained}`);
-                            entities.splice(i, 1);
                             // Debug log for multiplayer
                             if (gameMode === 'multiplayer') {
                                 console.log(`[Banana] Collected! Value: ${bananaValue}, Total: ${bananasCollected}, Score: ${score}`);
                             }
+                            entities.splice(i, 1);
+                            continue;
                         }
                     } else if (ent.type === 'powerup') {
                         // Power-up collection
@@ -6169,6 +6170,7 @@
                                 triggerAnnouncement('JETPACK');
 
                                 entities.splice(i, 1);
+                                continue;
                             } else if (ent.powerupType === 'trex' && !trexActive && !jetpackActive) {
                                 // Activate T-Rex!
                                 trexActive = true;
@@ -6188,6 +6190,7 @@
                                 triggerAnnouncement('DINO-STOMP');
 
                                 entities.splice(i, 1);
+                                continue;
                             } else if (ent.powerupType === 'turtle' && !turtleActive) {
                                 // Activate Turtle Time!
                                 turtleActive = true;
@@ -6204,6 +6207,7 @@
                                 triggerAnnouncement('TURTLE TIME');
 
                                 entities.splice(i, 1);
+                                continue;
                             } else if (ent.powerupType === 'star' && !starActive) {
                                 // Activate Star Invincibility!
                                 starActive = true;
@@ -6221,6 +6225,7 @@
                                 triggerAnnouncement('SUPERSTAR');
 
                                 entities.splice(i, 1);
+                                continue;
                             }
                             // ========== PERMANENT BUFFS (STACKABLE) ==========
                             else if (ent.powerupType === 'bubble') {
@@ -6240,6 +6245,7 @@
                                 }
 
                                 entities.splice(i, 1);
+                                continue;
                             } else if (ent.powerupType === 'pogo') {
                                 // Add a Pogo Stick (stackable)
                                 pogoStickCount++;
@@ -6257,6 +6263,7 @@
                                 }
 
                                 entities.splice(i, 1);
+                                continue;
                             } else if (ent.powerupType === 'lion' && !lionRoarUsed) {
                                 // Activate Lion Roar (once per run only)
                                 lionRoarUsed = true;
@@ -6278,6 +6285,7 @@
                                 triggerAnnouncement('LION ROAR');
 
                                 entities.splice(i, 1);
+                                continue;
                             }
                         }
                     }
