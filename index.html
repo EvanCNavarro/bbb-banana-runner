@@ -4219,10 +4219,10 @@
         let powerUpSpawnCounter = 0; // Track spawns to guarantee power-ups
 
         // ============================================
-        // PERMANENT BUFFS (STACKABLE, last entire run)
+        // PERMANENT BUFFS (last entire run, max 1 each)
         // ============================================
-        let bubbleShieldCount = 0;    // Number of bubble shields (stackable)
-        let pogoStickCount = 0;       // Number of pogos (stackable, multiplies jump)
+        let bubbleShieldCount = 0;    // 0 or 1 - absorbs one hit
+        let pogoStickCount = 0;       // 0 or 1 - increases jump height
         let lionRoarUsed = false;     // Lion already used this run
         let obstaclesShrunk = false;  // Obstacles are at 80% size (20% reduction)
 
@@ -4232,12 +4232,10 @@
         // Jetpack - fly above obstacles
         let jetpackActive = false;
         let jetpackTimer = 0;
-        let jetpackPhase = 'none'; // 'rising', 'peak', 'descending', 'none'
         let jetpackTargetY = 0;
-        let jetpackOriginalY = 0;
-        const JETPACK_FLY_HEIGHT = 120;
-        const JETPACK_RISE_SPEED = 8;
-        const JETPACK_DESCEND_SPEED = 1;
+        // Jetpack hovers at banana level - high enough to clear obstacles, low enough to collect bananas
+        const JETPACK_FLY_HEIGHT = BANANA_HEIGHT_OFFSET + 10; // ~65px above ground (banana level)
+        const JETPACK_RISE_SPEED = 6;
 
         // T-Rex/Dino - stomp through obstacles
         let trexActive = false;
@@ -5344,7 +5342,6 @@
                 if (jetpackActive) {
                     // Exit jetpack and jump out
                     jetpackActive = false;
-                    jetpackPhase = 'none';
                     jetpackTimer = 0;
                     player.vy = getJumpVelocity();
                     player.jumping = true;
@@ -5626,12 +5623,13 @@
 
                 if (poolRoll < 0.35) {
                     // POOL A: Permanent Buffs (Bubble 40%, Pogo 40%, Lion 20%)
+                    // Bubble and Pogo only spawn if not already active (no stacking)
                     const poolARoll = getRandom();
-                    if (poolARoll < 0.40) {
+                    if (poolARoll < 0.40 && bubbleShieldCount === 0) {
                         powerUpType = 'bubble';
                         powerUpSprite = sprites.bubblePowerUp;
                         powerUpColors = colors.bubblePowerUp;
-                    } else if (poolARoll < 0.80) {
+                    } else if (poolARoll < 0.80 && pogoStickCount === 0) {
                         powerUpType = 'pogo';
                         powerUpSprite = sprites.pogoPowerUp;
                         powerUpColors = colors.pogoPowerUp;
@@ -5640,12 +5638,8 @@
                         powerUpType = 'lion';
                         powerUpSprite = sprites.lionPowerUp;
                         powerUpColors = colors.lionPowerUp;
-                    } else {
-                        // Lion already used, fallback to bubble
-                        powerUpType = 'bubble';
-                        powerUpSprite = sprites.bubblePowerUp;
-                        powerUpColors = colors.bubblePowerUp;
                     }
+                    // If all Pool A options unavailable, skip spawn
                 } else {
                     // POOL B: Time-Based Buffs (Jetpack 30%, Dino 30%, Turtle 20%, Star 20%)
                     // First determine intended type, then check if it can spawn
@@ -5827,7 +5821,6 @@
             // Reset jetpack state
             jetpackActive = false;
             jetpackTimer = 0;
-            jetpackPhase = 'none';
             jetpackSpawnCounter = 0;
             powerUpBonusScore = 0;
             // Reset T-Rex state
@@ -5900,50 +5893,30 @@
             }
 
             // Jetpack flight mechanics (overrides normal physics when active)
+            // Hovers at banana-collection height the entire duration
             if (jetpackActive) {
                 jetpackTimer -= delta; // Timer runs at normal speed (not affected by turtle)
 
-                if (jetpackPhase === 'rising') {
-                    // Rocket up quickly
+                // Rise to target height if not there yet
+                if (player.y > jetpackTargetY) {
                     player.y -= JETPACK_RISE_SPEED * gameDelta;
-                    // Spawn thrust particles
-                    if (Math.floor(gameTime) % 2 === 0) {
-                        spawnJetpackParticles(player.x + PLAYER_WIDTH / 2, player.y + PLAYER_HEIGHT);
-                    }
-                    // Check if reached target height
-                    if (player.y <= jetpackTargetY) {
+                    if (player.y < jetpackTargetY) {
                         player.y = jetpackTargetY;
-                        jetpackPhase = 'peak';
                     }
-                } else if (jetpackPhase === 'peak') {
-                    // Hover at peak for a moment, then start descending
-                    // Spawn occasional thrust particles
-                    if (Math.floor(gameTime) % 4 === 0) {
-                        spawnJetpackParticles(player.x + PLAYER_WIDTH / 2, player.y + PLAYER_HEIGHT);
-                    }
-                    // After 1/3 of time, start descending slowly
-                    if (jetpackTimer < TIME_BUFF_DURATION * 0.6) {
-                        jetpackPhase = 'descending';
-                    }
-                } else if (jetpackPhase === 'descending') {
-                    // Slowly descend but stay above obstacles
-                    player.y += JETPACK_DESCEND_SPEED * gameDelta;
-                    // Spawn occasional thrust particles
-                    if (Math.floor(gameTime) % 6 === 0) {
-                        spawnJetpackParticles(player.x + PLAYER_WIDTH / 2, player.y + PLAYER_HEIGHT);
-                    }
-                    // Don't go below a safe height above obstacles
-                    const safeHeight = player.groundY - 60; // Stay 60px above ground
-                    if (player.y > safeHeight) {
-                        player.y = safeHeight;
-                    }
+                } else {
+                    // Hold at target height (banana collection level)
+                    player.y = jetpackTargetY;
                 }
 
-                // Check if jetpack time is up or player initiated drop
+                // Spawn thrust particles
+                if (Math.floor(gameTime) % 3 === 0) {
+                    spawnJetpackParticles(player.x + PLAYER_WIDTH / 2, player.y + PLAYER_HEIGHT);
+                }
+
+                // Check if jetpack time is up
                 if (jetpackTimer <= 0) {
                     // End jetpack - drop back to ground
                     jetpackActive = false;
-                    jetpackPhase = 'none';
                     player.jumping = true;
                     player.vy = 2; // Start falling
                 }
@@ -6158,11 +6131,9 @@
                         if (gameMode !== 'multiplayer' || localPlayerAlive) {
                             // ========== TIME-BASED BUFFS ==========
                             if (ent.powerupType === 'jetpack' && !jetpackActive && !trexActive) {
-                                // Activate jetpack!
+                                // Activate jetpack - hovers at banana collection height
                                 jetpackActive = true;
-                                jetpackTimer = TIME_BUFF_DURATION; // Now 10 seconds (600 frames)
-                                jetpackPhase = 'rising';
-                                jetpackOriginalY = player.groundY;
+                                jetpackTimer = TIME_BUFF_DURATION; // 10 seconds (600 frames)
                                 jetpackTargetY = player.groundY - JETPACK_FLY_HEIGHT;
                                 player.jumping = false; // Cancel any current jump
                                 player.vy = 0;
@@ -6235,40 +6206,32 @@
                                 entities.splice(i, 1);
                                 continue;
                             }
-                            // ========== PERMANENT BUFFS (STACKABLE) ==========
-                            else if (ent.powerupType === 'bubble') {
-                                // Add a Bubble Shield (stackable)
-                                bubbleShieldCount++;
+                            // ========== PERMANENT BUFFS (NO STACKING) ==========
+                            else if (ent.powerupType === 'bubble' && bubbleShieldCount === 0) {
+                                // Add a Bubble Shield (only 1 at a time)
+                                bubbleShieldCount = 1;
                                 sessionBubblesCollected++;
 
                                 // Award bonus points
                                 powerUpBonusScore += 75;
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+75');
 
-                                // Announce power-up (with count if multiple)
-                                if (bubbleShieldCount > 1) {
-                                    triggerAnnouncement(`BUBBLE x${bubbleShieldCount}`);
-                                } else {
-                                    triggerAnnouncement('BUBBLE SHIELD');
-                                }
+                                // Announce power-up
+                                triggerAnnouncement('BUBBLE SHIELD');
 
                                 entities.splice(i, 1);
                                 continue;
-                            } else if (ent.powerupType === 'pogo') {
-                                // Add a Pogo Stick (stackable)
-                                pogoStickCount++;
+                            } else if (ent.powerupType === 'pogo' && pogoStickCount === 0) {
+                                // Add a Pogo Stick (only 1 at a time)
+                                pogoStickCount = 1;
                                 sessionPogosCollected++;
 
                                 // Award bonus points
                                 powerUpBonusScore += 75;
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+75');
 
-                                // Announce power-up (with count if multiple)
-                                if (pogoStickCount > 1) {
-                                    triggerAnnouncement(`POGO x${pogoStickCount}`);
-                                } else {
-                                    triggerAnnouncement('POGO STICK');
-                                }
+                                // Announce power-up
+                                triggerAnnouncement('POGO STICK');
 
                                 entities.splice(i, 1);
                                 continue;
@@ -7733,21 +7696,21 @@
                 let buffY = 95;
                 const buffX = 20;
 
-                // Bubble Shield indicator
+                // Bubble Shield indicator (only 1 at a time)
                 if (bubbleShieldCount > 0) {
                     ctx.fillStyle = 'rgba(0, 188, 212, 0.9)';
                     ctx.font = 'bold 18px monospace';
                     ctx.textAlign = 'left';
-                    ctx.fillText(`🫧 x${bubbleShieldCount}`, buffX, buffY);
+                    ctx.fillText('🫧 SHIELD', buffX, buffY);
                     buffY += 25;
                 }
 
-                // Pogo Stick indicator
+                // Pogo Stick indicator (only 1 at a time)
                 if (pogoStickCount > 0) {
                     ctx.fillStyle = 'rgba(255, 87, 34, 0.9)';
                     ctx.font = 'bold 18px monospace';
                     ctx.textAlign = 'left';
-                    ctx.fillText(`🦘 x${pogoStickCount}`, buffX, buffY);
+                    ctx.fillText('🦘 POGO', buffX, buffY);
                     buffY += 25;
                 }
 
