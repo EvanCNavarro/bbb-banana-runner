@@ -5788,8 +5788,8 @@
                 ctx.font = DS.font(titleSize, 'bold');
                 const titleWidth = ctx.measureText('BANANA RUNNER').width;
                 const logoGap = isCompact ? DS.spacing.sm : DS.spacing.md;
-                const totalWidth = bananaWidth + logoGap + titleWidth;
-                const startX = centerX - totalWidth / 2;
+                const logoTotalWidth = bananaWidth + logoGap + titleWidth;
+                const startX = centerX - logoTotalWidth / 2;
 
                 // Draw banana logo
                 const logoY = y + (DS.fontSize(titleSize) - bananaHeight) / 2;
