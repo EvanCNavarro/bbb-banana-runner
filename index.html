@@ -5047,7 +5047,11 @@
             // Check for power-up spawn (rare, but guaranteed eventually)
             // Starts having a chance after 25 spawns, increases each spawn
             // By spawn 50, it's almost guaranteed if not already spawned
-            const powerUpChance = Math.max(0, (jetpackSpawnCounter - 25) * 0.02); // 0% at 25, 2% at 26, 50% at 50
+            // Level bonus: +1% chance per level (rewards surviving longer)
+            const currentLevel = getCurrentLevel(score);
+            const levelBonus = currentLevel * 0.01; // +1% per level
+            const baseChance = Math.max(0, (jetpackSpawnCounter - 25) * 0.02); // 0% at 25, 2% at 26, 50% at 50
+            const powerUpChance = Math.min(0.6, baseChance + levelBonus); // Cap at 60%
             const noPowerUpActive = !jetpackActive && !trexActive;
             const shouldSpawnPowerUp = noPowerUpActive && getRandom() < powerUpChance;
 
