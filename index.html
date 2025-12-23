@@ -552,8 +552,8 @@
                         times_reached_rank_one: data.times_reached_rank_one || 0,
                         total_purchases: data.total_purchases || 0,
                         total_spent: data.total_spent || 0,
-                        multiplayer_games: 0, // Will be tracked separately
-                        multiplayer_wins: 0   // Will be tracked separately
+                        multiplayer_games: data.multiplayer_games || 0,
+                        multiplayer_wins: data.multiplayer_wins || 0
                     };
 
                     // Initialize lands played set from loaded data
@@ -811,13 +811,25 @@
 
                     // Update local playerStats object for achievement checking
                     Object.assign(playerStats, updates);
+                }
 
-                    // Track multiplayer stats locally (for achievement checking)
-                    if (isMultiplayer) {
-                        playerStats.multiplayer_games = (playerStats.multiplayer_games || 0) + 1;
-                        if (didWin) {
-                            playerStats.multiplayer_wins = (playerStats.multiplayer_wins || 0) + 1;
-                        }
+                // Save multiplayer stats to database (separate update to handle the isMultiplayer flag)
+                if (isMultiplayer) {
+                    const mpUpdates = {
+                        multiplayer_games: (userProfile.multiplayer_games || 0) + 1
+                    };
+                    if (didWin) {
+                        mpUpdates.multiplayer_wins = (userProfile.multiplayer_wins || 0) + 1;
+                    }
+
+                    const { error: mpError } = await supabaseClient
+                        .from('profiles')
+                        .update(mpUpdates)
+                        .eq('id', currentUser.id);
+
+                    if (!mpError) {
+                        userProfile = { ...userProfile, ...mpUpdates };
+                        Object.assign(playerStats, mpUpdates);
                     }
                 }
             }
@@ -1925,7 +1937,9 @@
                 highest_level_reached: profile.highest_level_reached || 0,
                 times_reached_rank_one: profile.times_reached_rank_one || 0,
                 total_purchases: profile.total_purchases || 0,
-                total_spent: profile.total_spent || 0
+                total_spent: profile.total_spent || 0,
+                multiplayer_games: profile.multiplayer_games || 0,
+                multiplayer_wins: profile.multiplayer_wins || 0
             });
 
             // Also update userProfile
