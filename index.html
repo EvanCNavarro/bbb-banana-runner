@@ -540,6 +540,12 @@
                         total_time_played: data.total_time_played || 0,
                         jetpacks_collected: data.jetpacks_collected || 0,
                         dino_stomps_collected: data.dino_stomps_collected || 0,
+                        bubbles_collected: data.bubbles_collected || 0,
+                        bubble_hits_absorbed: data.bubble_hits_absorbed || 0,
+                        pogos_collected: data.pogos_collected || 0,
+                        lions_collected: data.lions_collected || 0,
+                        turtles_collected: data.turtles_collected || 0,
+                        stars_collected: data.stars_collected || 0,
                         snow_games_played: data.snow_games_played || 0,
                         desert_games_played: data.desert_games_played || 0,
                         jungle_games_played: data.jungle_games_played || 0,
@@ -2920,6 +2926,106 @@
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
             ],
+            // Money Power-up (48x48 pixels) - Dollar sign in green bubble
+            moneyPowerUp: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0],
+                [0,0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0,0],
+                [0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0],
+                [0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0],
+                [0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0],
+                [0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0],
+                [0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0],
+                [0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0],
+                [0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,5,5,5,5,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0],
+                [0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0],
+                [0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0],
+                [0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0],
+                [0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0],
+                [0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0],
+                [0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0],
+                [0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ],
+            // Laser Power-up (48x48 pixels) - Eye with beam in red bubble
+            laserPowerUp: [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0],
+                [0,0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0,0],
+                [0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0],
+                [0,0,0,0,8,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,2,2,2,2,2,2,1,1,1,1,1,1,1,5,5,5,5,5,5,5,8,0,0,0,0,0,0],
+                [0,0,0,8,8,5,5,5,5,5,5,5,5,5,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,5,5,5,5,5,5,5,8,8,0,0,0,0,0],
+                [0,0,0,8,5,5,5,5,5,5,5,5,5,1,1,1,1,1,2,2,2,2,3,3,3,3,2,2,2,2,1,1,1,1,1,5,5,5,5,5,5,5,8,0,0,0,0,0],
+                [0,0,8,8,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,2,3,3,3,3,3,3,2,2,2,2,1,1,1,1,5,5,5,5,5,5,5,8,8,0,0,0,0],
+                [0,0,8,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,3,3,3,4,4,3,3,3,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,8,0,0,0,0],
+                [0,8,8,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,3,3,4,4,4,4,3,3,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,8,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,3,3,4,4,4,4,3,3,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,3,3,3,4,4,3,3,3,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [8,8,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,2,2,2,2,3,3,3,3,3,3,2,2,2,2,1,1,1,1,5,5,5,5,5,5,5,5,5,8,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,2,2,2,2,3,3,3,3,2,2,2,2,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,2,2,2,2,2,2,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0],
+                [8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0],
+                [0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0],
+                [0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0],
+                [0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0],
+                [0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0],
+                [0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0],
+                [0,0,0,0,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,0,0,0,0,0,0],
+                [0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0],
+                [0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,5,5,5,5,5,5,5,5,5,5,5,5,5,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ],
             // T-Rex sprite (48x56 pixels) - Large Chrome dino style for player transformation
             trex: [
                 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
@@ -3598,6 +3704,19 @@
                 5: '#B3E5FC',  // Light blue bubble
                 8: '#FFD700'   // Gold outline (time-based)
             },
+            moneyPowerUp: {
+                1: '#4CAF50',  // Green dollar sign
+                5: '#C8E6C9',  // Light green bubble
+                8: '#2E7D32'   // Dark green outline
+            },
+            laserPowerUp: {
+                1: '#F44336',  // Red eye outline
+                2: '#FFCDD2',  // Light pink inner eye
+                3: '#E91E63',  // Pink iris
+                4: '#000000',  // Black pupil
+                5: '#FFEBEE',  // Very light pink bubble
+                8: '#B71C1C'   // Dark red outline
+            },
             // Transformative skin sprites and colors
             bananaSuit: {
                 1: '#FFD700',  // Bright yellow peel
@@ -4222,6 +4341,8 @@
         // PERMANENT BUFFS (last entire run, max 1 each)
         // ============================================
         let bubbleShieldCount = 0;    // 0 or 1 - absorbs one hit
+        let bubblePopInvincibility = 0; // Brief invincibility after bubble pops (frames)
+        const BUBBLE_POP_INVINCIBILITY = 30; // ~0.5 seconds of invincibility after bubble pops
         let pogoStickCount = 0;       // 0 or 1 - increases jump height
         let lionRoarUsed = false;     // Lion already used this run
         let obstaclesShrunk = false;  // Obstacles are at 80% size (20% reduction)
@@ -4253,6 +4374,15 @@
         let starColorIndex = 0;
         const RAINBOW_COLORS = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3'];
 
+        // Money - double points
+        let moneyActive = false;
+        let moneyTimer = 0;
+
+        // Laser - disco ball destruction beams
+        let laserActive = false;
+        let laserTimer = 0;
+        let laserAngle = 0;  // For spinning laser effect
+
         // ============================================
         // POWER-UP SESSION TRACKING (for achievements)
         // ============================================
@@ -4262,13 +4392,16 @@
         let sessionTurtlesCollected = 0;
         let sessionStarsCollected = 0;
         let sessionBubbleHitsAbsorbed = 0;
+        let sessionMoneyCollected = 0;
+        let sessionLasersCollected = 0;
 
         // ============================================
         // POWER-UP PRIORITY SYSTEM (Strongest Wins)
         // ============================================
-        // Priority order: Star > Dino > Jetpack > Bubble > None
+        // Priority order: Star > Laser > Dino > Jetpack > Bubble > None
         function getActiveProtection() {
             if (starActive) return 'star';
+            if (laserActive) return 'laser';
             if (trexActive) return 'dino';
             if (jetpackActive) return 'jetpack';
             if (bubbleShieldCount > 0) return 'bubble';
@@ -5639,19 +5772,23 @@
                     }
                     // If all Pool A options unavailable, skip spawn
                 } else {
-                    // POOL B: Time-Based Buffs (Jetpack 30%, Dino 30%, Turtle 20%, Star 20%)
+                    // POOL B: Time-Based Buffs (Jetpack 20%, Dino 20%, Turtle 15%, Star 15%, Money 15%, Laser 15%)
                     // First determine intended type, then check if it can spawn
                     const poolBRoll = getRandom();
                     let intendedType = null;
 
-                    if (poolBRoll < 0.30) {
+                    if (poolBRoll < 0.20) {
                         intendedType = 'jetpack';
-                    } else if (poolBRoll < 0.60) {
+                    } else if (poolBRoll < 0.40) {
                         intendedType = 'trex';
-                    } else if (poolBRoll < 0.80) {
+                    } else if (poolBRoll < 0.55) {
                         intendedType = 'turtle';
-                    } else {
+                    } else if (poolBRoll < 0.70) {
                         intendedType = 'star';
+                    } else if (poolBRoll < 0.85) {
+                        intendedType = 'money';
+                    } else {
+                        intendedType = 'laser';
                     }
 
                     // Check if intended type can spawn (not already active)
@@ -5671,6 +5808,14 @@
                         powerUpType = 'star';
                         powerUpSprite = sprites.starPowerUp;
                         powerUpColors = colors.starPowerUp;
+                    } else if (intendedType === 'money' && !moneyActive) {
+                        powerUpType = 'money';
+                        powerUpSprite = sprites.moneyPowerUp;
+                        powerUpColors = colors.moneyPowerUp;
+                    } else if (intendedType === 'laser' && !laserActive) {
+                        powerUpType = 'laser';
+                        powerUpSprite = sprites.laserPowerUp;
+                        powerUpColors = colors.laserPowerUp;
                     }
                     // If intended type is active, don't spawn anything from Pool B
                     // (power-up spawn opportunity is simply skipped)
@@ -5826,6 +5971,7 @@
             trexTimer = 0;
             // Reset new power-up states (Permanent Buffs)
             bubbleShieldCount = 0;
+            bubblePopInvincibility = 0;
             pogoStickCount = 0;
             lionRoarUsed = false;
             obstaclesShrunk = false;
@@ -5835,6 +5981,11 @@
             starActive = false;
             starTimer = 0;
             starColorIndex = 0;
+            moneyActive = false;
+            moneyTimer = 0;
+            laserActive = false;
+            laserTimer = 0;
+            laserAngle = 0;
             // Reset session stats
             sessionJetpacksCollected = 0;
             sessionDinoStompsCollected = 0;
@@ -5844,6 +5995,8 @@
             sessionTurtlesCollected = 0;
             sessionStarsCollected = 0;
             sessionBubbleHitsAbsorbed = 0;
+            sessionMoneyCollected = 0;
+            sessionLasersCollected = 0;
             sessionGameDuration = 0;
             player.y = player.groundY;
             player.vy = 0;
@@ -5967,6 +6120,28 @@
                 }
             }
 
+            // Update Money timer (double points)
+            if (moneyActive) {
+                moneyTimer -= delta;
+                if (moneyTimer <= 0) {
+                    moneyActive = false;
+                }
+            }
+
+            // Update Laser timer (disco ball destruction) and spin the laser angle
+            if (laserActive) {
+                laserTimer -= delta;
+                laserAngle += 0.15; // Spin the laser beams
+                if (laserTimer <= 0) {
+                    laserActive = false;
+                }
+            }
+
+            // Update bubble pop invincibility timer (protects against grouped obstacles)
+            if (bubblePopInvincibility > 0) {
+                bubblePopInvincibility -= delta;
+            }
+
             if (!jetpackActive && !trexActive && player.jumping) {
                 // Normal player physics with variable jump height
                 // Base gravity
@@ -6017,6 +6192,41 @@
 
                 ent.x -= speed * gameDelta; // Use gameDelta for turtle slow-mo
 
+                // LASER BEAM collision - destroy obstacles hit by spinning laser beams
+                if (laserActive && ent.type === 'obstacle') {
+                    const playerCenterX = player.x + PLAYER_WIDTH / 2;
+                    const playerCenterY = player.y + PLAYER_HEIGHT / 2;
+                    const entCenterX = ent.x + (ent.pixels[0].length * ent.scale) / 2;
+                    const entCenterY = ent.y + (ent.pixels.length * ent.scale) / 2;
+                    const beamLength = 200;
+                    const beamCount = 8;
+
+                    // Check if obstacle is within beam range
+                    const distToObstacle = Math.sqrt(Math.pow(entCenterX - playerCenterX, 2) + Math.pow(entCenterY - playerCenterY, 2));
+                    if (distToObstacle < beamLength) {
+                        // Calculate angle to obstacle
+                        const angleToObstacle = Math.atan2(entCenterY - playerCenterY, entCenterX - playerCenterX);
+
+                        // Check if any beam is pointing at the obstacle (within tolerance)
+                        for (let b = 0; b < beamCount; b++) {
+                            const beamAngle = laserAngle + (b * Math.PI * 2 / beamCount);
+                            // Normalize angles for comparison
+                            let angleDiff = Math.abs(((beamAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) -
+                                                     ((angleToObstacle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
+                            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+
+                            // If beam angle matches obstacle angle (with tolerance), destroy it
+                            if (angleDiff < 0.25) { // ~15 degrees tolerance
+                                entities.splice(i, 1);
+                                powerUpBonusScore += 15;
+                                spawnFloatingText(ent.x + 20, ent.y - 10, '+15');
+                                break; // Exit beam loop, obstacle destroyed
+                            }
+                        }
+                        if (!entities[i]) continue; // Obstacle was destroyed, skip rest
+                    }
+                }
+
                 // Remove off-screen entities
                 const entW = ent.pixels[0].length * ent.scale;
                 if (ent.x + entW < -50) {
@@ -6054,6 +6264,12 @@
                             powerUpBonusScore += 25;
                             spawnFloatingText(ent.x + 20, ent.y - 10, '+25');
                             continue;
+                        } else if (protection === 'laser') {
+                            // Laser: Destroy obstacle on contact
+                            entities.splice(i, 1);
+                            powerUpBonusScore += 20;
+                            spawnFloatingText(ent.x + 20, ent.y - 10, '+20');
+                            continue;
                         } else if (protection === 'dino') {
                             // T-Rex: Stomp through obstacles (already handled by trexActive)
                             continue;
@@ -6065,10 +6281,20 @@
                             bubbleShieldCount--;
                             sessionBubbleHitsAbsorbed++;
 
+                            // Start brief invincibility to protect against grouped obstacles
+                            bubblePopInvincibility = BUBBLE_POP_INVINCIBILITY;
+
                             // Announce bubble pop
                             triggerAnnouncement('BUBBLE POP');
 
                             // Remove the obstacle that hit us
+                            entities.splice(i, 1);
+                            continue;
+                        }
+
+                        // Check for bubble pop invincibility (protects against grouped obstacles)
+                        if (bubblePopInvincibility > 0) {
+                            // Still briefly invincible after bubble pop, destroy this obstacle too
                             entities.splice(i, 1);
                             continue;
                         }
@@ -6203,6 +6429,41 @@
 
                                 entities.splice(i, 1);
                                 continue;
+                            } else if (ent.powerupType === 'money' && !moneyActive) {
+                                // Activate Double Points!
+                                moneyActive = true;
+                                moneyTimer = TIME_BUFF_DURATION; // 10 seconds
+
+                                // Track money collection
+                                sessionMoneyCollected++;
+
+                                // Award bonus points
+                                powerUpBonusScore += 100;
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+100');
+
+                                // Announce power-up
+                                triggerAnnouncement('DOUBLE POINTS');
+
+                                entities.splice(i, 1);
+                                continue;
+                            } else if (ent.powerupType === 'laser' && !laserActive) {
+                                // Activate Laser Eyes!
+                                laserActive = true;
+                                laserTimer = TIME_BUFF_DURATION; // 10 seconds
+                                laserAngle = 0;
+
+                                // Track laser collection
+                                sessionLasersCollected++;
+
+                                // Award bonus points
+                                powerUpBonusScore += 125;
+                                spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+125');
+
+                                // Announce power-up
+                                triggerAnnouncement('LASER EYES');
+
+                                entities.splice(i, 1);
+                                continue;
                             }
                             // ========== PERMANENT BUFFS (NO STACKING) ==========
                             else if (ent.powerupType === 'bubble' && bubbleShieldCount === 0) {
@@ -6288,7 +6549,9 @@
 
             // Update score (time survived + banana bonuses + jump bonuses) - but freeze on death in multiplayer
             if (gameMode !== 'multiplayer' || localPlayerAlive) {
-                score = Math.floor(gameTime / 6) + (bananasCollected * 150) + jumpBonusScore + powerUpBonusScore;
+                let baseScore = Math.floor(gameTime / 6) + (bananasCollected * 150) + jumpBonusScore + powerUpBonusScore;
+                // MONEY POWER-UP: Double the score when active
+                score = moneyActive ? baseScore * 2 : baseScore;
             }
 
             scrollOffset = (scrollOffset + speed * gameDelta) % 40; // Use gameDelta for turtle slow-mo
@@ -7405,6 +7668,35 @@
                         // Power-ups get a gold/cyan outline for visibility
                         const powerUpOutline = '#FFD700'; // Gold outline for all power-ups
                         drawSpriteWithOutline(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors, powerUpOutline, 1);
+
+                        // Draw text label above power-up bubble
+                        const labelMap = {
+                            'jetpack': 'JETPACK',
+                            'trex': 'STOMP',
+                            'bubble': 'SHIELD',
+                            'pogo': 'POGO',
+                            'lion': 'LION',
+                            'turtle': 'SLOW',
+                            'star': 'STAR',
+                            'money': '2X PTS',
+                            'laser': 'LASER'
+                        };
+                        const label = labelMap[ent.powerupType] || 'POWER';
+                        const labelX = ent.x + (48 * ent.scale) / 2;
+                        const labelY = ent.y - 8;
+
+                        // Background pill for label
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        ctx.font = 'bold 11px monospace';
+                        const textWidth = ctx.measureText(label).width;
+                        ctx.beginPath();
+                        ctx.roundRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 14, 7);
+                        ctx.fill();
+
+                        // Label text
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(label, labelX, labelY);
                     } else {
                         drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
                     }
@@ -7585,6 +7877,44 @@
                         ctx.stroke();
                         ctx.restore();
                     }
+
+                    // LASER: Disco ball spinning laser beams
+                    if (laserActive) {
+                        ctx.save();
+                        const beamCount = 8; // Number of laser beams
+                        const beamLength = 200; // How far beams reach
+                        const beamWidth = 3;
+
+                        for (let i = 0; i < beamCount; i++) {
+                            const angle = laserAngle + (i * Math.PI * 2 / beamCount);
+                            const endX = playerCenterX + Math.cos(angle) * beamLength;
+                            const endY = playerCenterY + Math.sin(angle) * beamLength;
+
+                            // Create gradient for beam
+                            const gradient = ctx.createLinearGradient(playerCenterX, playerCenterY, endX, endY);
+                            gradient.addColorStop(0, 'rgba(244, 67, 54, 0.9)');
+                            gradient.addColorStop(0.5, 'rgba(233, 30, 99, 0.7)');
+                            gradient.addColorStop(1, 'rgba(244, 67, 54, 0)');
+
+                            ctx.strokeStyle = gradient;
+                            ctx.lineWidth = beamWidth;
+                            ctx.shadowColor = '#F44336';
+                            ctx.shadowBlur = 10;
+                            ctx.beginPath();
+                            ctx.moveTo(playerCenterX, playerCenterY);
+                            ctx.lineTo(endX, endY);
+                            ctx.stroke();
+                        }
+
+                        // Central eye glow
+                        ctx.fillStyle = 'rgba(244, 67, 54, 0.8)';
+                        ctx.shadowColor = '#F44336';
+                        ctx.shadowBlur = 20;
+                        ctx.beginPath();
+                        ctx.arc(playerCenterX, playerCenterY - 10, 8, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    }
                 }
 
                 // Draw particle effects (behind UI, after player)
@@ -7684,6 +8014,48 @@
                     ctx.font = 'bold 14px monospace';
                     ctx.textAlign = 'left';
                     ctx.fillText('⭐', timerX, timerY + 5);
+
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 16px monospace';
+                    ctx.fillText(`${secondsLeft}s`, timerX + 20, timerY + 5);
+                }
+
+                // Draw Money timer if active (double points)
+                if (moneyActive) {
+                    const timerX = player.x + PLAYER_WIDTH + 15;
+                    const timerY = player.y - 90;
+                    const secondsLeft = Math.ceil(moneyTimer / 60);
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.beginPath();
+                    ctx.roundRect(timerX - 5, timerY - 12, 55, 24, 12);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.font = 'bold 14px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('💰', timerX, timerY + 5);
+
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 16px monospace';
+                    ctx.fillText(`${secondsLeft}s`, timerX + 20, timerY + 5);
+                }
+
+                // Draw Laser timer if active (disco destruction)
+                if (laserActive) {
+                    const timerX = player.x + PLAYER_WIDTH + 15;
+                    const timerY = player.y - 120;
+                    const secondsLeft = Math.ceil(laserTimer / 60);
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.beginPath();
+                    ctx.roundRect(timerX - 5, timerY - 12, 55, 24, 12);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#F44336';
+                    ctx.font = 'bold 14px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('👁️', timerX, timerY + 5);
 
                     ctx.fillStyle = '#FFFFFF';
                     ctx.font = 'bold 16px monospace';
