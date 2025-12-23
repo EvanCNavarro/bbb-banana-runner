@@ -97,7 +97,7 @@ export const BANANA_SPAWN_CHANCE = 0.35;
  * Points awarded per banana collected
  * @constant {number}
  */
-export const BANANA_POINTS = 150;
+export const BANANA_POINTS = 100;
 
 /**
  * Ground height as fraction of canvas height
