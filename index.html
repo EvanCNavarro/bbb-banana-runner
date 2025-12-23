@@ -939,9 +939,10 @@
             // Start the game
             startGame();
 
-            // Position local player based on their index
+            // Position local player based on their index (host rightmost, joiners to left)
             if (player) {
-                player.x = 80 + (localPlayerIndex * PLAYER_STAGGER_X);
+                const playerCount = lobbyPlayers.length;
+                player.x = 80 + ((playerCount - 1 - localPlayerIndex) * PLAYER_STAGGER_X);
             }
 
             // Subscribe to game updates from all players
@@ -952,13 +953,17 @@
 
         function initializeMultiplayerPlayers() {
             // Create player state objects for all lobby players
+            // Position: host (index 0) is RIGHTMOST, joiners to the LEFT in join order
+            const playerCount = lobbyPlayers.length;
             allPlayersStates = {};
             multiplayerPlayers = lobbyPlayers.map((lp, index) => {
+                // Reverse the X position: host at right, later joiners at left
+                const xPosition = 80 + ((playerCount - 1 - index) * PLAYER_STAGGER_X);
                 const playerState = {
                     id: lp.player_id,
                     username: lp.profiles?.username || 'Player',
                     playerIndex: index,
-                    x: 80 + (index * PLAYER_STAGGER_X),
+                    x: xPosition,
                     y: 0,  // Will be updated
                     score: 0,
                     bananas: 0,
@@ -973,13 +978,17 @@
             localPlayerIndex = multiplayerPlayers.findIndex(p => p.isLocal);
         }
 
+        let gameChannelReady = false;
+
         function subscribeGameUpdates() {
             if (!supabaseClient || !currentLobby) return;
 
             // Clean up existing channel
             if (gameChannel) {
                 supabaseClient.removeChannel(gameChannel);
+                gameChannel = null;
             }
+            gameChannelReady = false;
 
             gameChannel = supabaseClient
                 .channel(`game:${currentLobby.id}`)
@@ -994,19 +1003,37 @@
                             allPlayersStates[data.playerId].isAlive = data.isAlive;
                         }
 
-                        // Check if all players are dead (round over)
+                        // Check if all players are dead
                         checkRoundOver();
+                    }
+                })
+                .on('broadcast', { event: 'round_over' }, (payload) => {
+                    // Someone detected round is over - transition everyone
+                    if (gameState === 'playing') {
+                        // Update final states from payload
+                        if (payload.payload?.finalStates) {
+                            Object.assign(allPlayersStates, payload.payload.finalStates);
+                        }
+                        endMultiplayerRound();
                     }
                 })
                 .on('broadcast', { event: 'play_again' }, () => {
                     // Host triggered play again
-                    resetMultiplayerGame();
+                    if (gameState === 'multiplayer-results') {
+                        resetMultiplayerGame();
+                    }
                 })
-                .subscribe();
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        gameChannelReady = true;
+                        // Send initial state once connected
+                        broadcastPlayerState();
+                    }
+                });
         }
 
         function broadcastPlayerState() {
-            if (!gameChannel || gameMode !== 'multiplayer') return;
+            if (!gameChannel || !gameChannelReady || gameMode !== 'multiplayer') return;
 
             gameChannel.send({
                 type: 'broadcast',
@@ -1023,16 +1050,26 @@
         }
 
         function checkRoundOver() {
-            if (gameMode !== 'multiplayer') return;
+            if (gameMode !== 'multiplayer' || gameState !== 'playing') return;
 
             // Check if all players are dead
             const allDead = Object.values(allPlayersStates).every(p => !p.isAlive);
-            if (allDead && gameState === 'playing') {
+            if (allDead) {
+                // Broadcast round_over to ensure everyone transitions
+                if (gameChannel && gameChannelReady) {
+                    gameChannel.send({
+                        type: 'broadcast',
+                        event: 'round_over',
+                        payload: { finalStates: allPlayersStates }
+                    });
+                }
                 endMultiplayerRound();
             }
         }
 
         function endMultiplayerRound() {
+            if (gameState === 'multiplayer-results') return; // Already ended
+
             // Determine results - sort by score descending
             const results = Object.values(allPlayersStates)
                 .sort((a, b) => b.score - a.score);
@@ -1049,8 +1086,9 @@
             }
 
             // Save score for local player
-            if (currentUser) {
-                saveGameScore();
+            if (currentUser && !scoreSaved) {
+                scoreSaved = true;
+                saveScore(score, bananasCollected, selectedLand);
             }
 
             gameState = 'multiplayer-results';
@@ -1226,10 +1264,20 @@
         function resetMultiplayerGame() {
             // Reset local state for new round
             localPlayerAlive = true;
-            multiplayerPlayers = [];
-            allPlayersStates = {};
             gameResult = null;
+            scoreSaved = false;
+
+            // Reinitialize all players from lobby
+            initializeMultiplayerPlayers();
+
+            // Start the game
             startGame();
+
+            // Position local player based on their index (host rightmost, joiners to left)
+            if (player) {
+                const playerCount = lobbyPlayers.length;
+                player.x = 80 + ((playerCount - 1 - localPlayerIndex) * PLAYER_STAGGER_X);
+            }
         }
 
         // ============================================
@@ -2615,13 +2663,22 @@
                 }
             }
 
-            // Update score (time survived + banana bonuses)
-            score = Math.floor(gameTime / 6) + (bananasCollected * 150);
+            // Update score (time survived + banana bonuses) - but freeze on death in multiplayer
+            if (gameMode !== 'multiplayer' || localPlayerAlive) {
+                score = Math.floor(gameTime / 6) + (bananasCollected * 150);
+            }
 
             scrollOffset = (scrollOffset + speed) % 40;
 
-            // Broadcast game state in multiplayer (every 10 frames = ~6 updates/sec)
-            if (gameMode === 'multiplayer' && gameTime % 10 === 0) {
+            // Update and broadcast game state in multiplayer (every 5 frames = ~12 updates/sec for smoother sync)
+            if (gameMode === 'multiplayer' && gameTime % 5 === 0) {
+                // Update local player state in shared state before broadcasting
+                if (currentUser?.id && allPlayersStates[currentUser.id]) {
+                    allPlayersStates[currentUser.id].y = player?.y || 0;
+                    allPlayersStates[currentUser.id].score = score;
+                    allPlayersStates[currentUser.id].bananas = bananasCollected;
+                    allPlayersStates[currentUser.id].isAlive = localPlayerAlive;
+                }
                 broadcastPlayerState();
             }
         }
@@ -3512,23 +3569,42 @@
 
                 y += panelHeight + DS.spacing.xl;
 
-                // Buttons
-                const btnWidth = Math.min(200, canvas.width - DS.spacing.xl * 2);
+                // Buttons - Play Again is prominent, Leave is minor
+                const btnWidth = Math.min(220, canvas.width - DS.spacing.xl * 2);
                 const btnHeight = DS.button.height();
 
                 if (isLobbyHost) {
-                    const playAgainBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'PLAY AGAIN', { action: 'play_again', primary: true });
+                    // Large prominent PLAY AGAIN button for host
+                    const playAgainBounds = drawStyledButton(centerX, y, btnWidth, btnHeight * 1.2, 'PLAY AGAIN', { action: 'play_again', primary: true });
                     addClickable(playAgainBounds);
-                    y += btnHeight + DS.spacing.md;
+                    y += btnHeight * 1.2 + DS.spacing.xl;
                 } else {
                     ctx.fillStyle = DS.colors.textMuted;
                     ctx.font = DS.font('body');
                     ctx.fillText('Waiting for host to start next round...', centerX, y + DS.fontSize('body') / 2);
-                    y += DS.fontSize('body') + DS.spacing.md;
+                    y += DS.fontSize('body') + DS.spacing.xl;
                 }
 
-                const leaveBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'LEAVE LOBBY', { action: 'leave_results', primary: false });
-                addClickable(leaveBounds);
+                // Minor text-link style "leave" option
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small');
+                const leaveText = 'Leave Lobby';
+                const leaveWidth = ctx.measureText(leaveText).width + 20;
+                const leaveHeight = DS.fontSize('small') + 16;
+                const leaveX = centerX - leaveWidth / 2;
+                const leaveY = y;
+                ctx.fillText(leaveText, centerX, leaveY + leaveHeight / 2 + 2);
+
+                // Add subtle underline
+                const textWidth = ctx.measureText(leaveText).width;
+                ctx.beginPath();
+                ctx.moveTo(centerX - textWidth / 2, leaveY + leaveHeight / 2 + 6);
+                ctx.lineTo(centerX + textWidth / 2, leaveY + leaveHeight / 2 + 6);
+                ctx.strokeStyle = DS.colors.textMuted;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                addClickable({ x: leaveX, y: leaveY, w: leaveWidth, h: leaveHeight, action: 'leave_results' });
             }
 
             // Draw notifications on top of everything
