@@ -896,6 +896,9 @@
                         if (userProfile) {
                             userProfile.times_reached_rank_one = playerStats.times_reached_rank_one;
                         }
+
+                        // Check leaderboard achievement immediately
+                        checkLeaderboardAchievement();
                     }
                 }
 
@@ -1794,6 +1797,46 @@
                     userProfile.total_purchases = playerStats.total_purchases;
                     userProfile.total_spent = playerStats.total_spent;
                 }
+
+                // Check purchase-related achievements
+                checkPurchaseAchievements();
+            }
+        }
+
+        /**
+         * Check purchase-related achievements after a shop purchase
+         */
+        function checkPurchaseAchievements() {
+            if (!userProfile) return;
+
+            const purchaseAchievements = ['first_purchase', 'collector', 'shopaholic'];
+
+            for (const achId of purchaseAchievements) {
+                if (unlockedAchievements.includes(achId)) continue;
+
+                const achievement = ACHIEVEMENTS[achId];
+                if (!achievement) continue;
+
+                const req = achievement.requirement;
+                if (req.type === 'total_purchases' && playerStats.total_purchases >= req.value) {
+                    unlockAchievement(achId);
+                }
+            }
+        }
+
+        /**
+         * Check leaderboard achievement after reaching #1
+         */
+        function checkLeaderboardAchievement() {
+            if (!userProfile) return;
+
+            if (unlockedAchievements.includes('top_banana')) return;
+
+            const achievement = ACHIEVEMENTS['top_banana'];
+            if (!achievement) return;
+
+            if (playerStats.times_reached_rank_one >= 1) {
+                unlockAchievement('top_banana');
             }
         }
 
@@ -1920,6 +1963,20 @@
                 return { checked: 0, unlocked: 0, newRewards: 0 };
             }
 
+            // Also count actual purchased skins (in case total_purchases counter was broken)
+            const { data: purchasedSkins } = await supabaseClient
+                .from('player_skins')
+                .select('skin_id')
+                .eq('player_id', currentUser.id);
+
+            // Count purchased skins (excluding 'default' which is free)
+            const actualPurchaseCount = purchasedSkins
+                ? purchasedSkins.filter(s => s.skin_id !== 'default').length
+                : 0;
+
+            // Use the higher of stored count or actual count
+            const truePurchaseCount = Math.max(profile.total_purchases || 0, actualPurchaseCount);
+
             // Update local state with fresh data
             Object.assign(playerStats, {
                 total_games: profile.total_games || 0,
@@ -1936,7 +1993,7 @@
                 ocean_games_played: profile.ocean_games_played || 0,
                 highest_level_reached: profile.highest_level_reached || 0,
                 times_reached_rank_one: profile.times_reached_rank_one || 0,
-                total_purchases: profile.total_purchases || 0,
+                total_purchases: truePurchaseCount,
                 total_spent: profile.total_spent || 0,
                 multiplayer_games: profile.multiplayer_games || 0,
                 multiplayer_wins: profile.multiplayer_wins || 0
