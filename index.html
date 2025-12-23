@@ -412,6 +412,46 @@
         let entities = [];
         let spawnCounter = 0;
 
+        // ============================================
+        // SEEDED RANDOM NUMBER GENERATOR
+        // For synchronized multiplayer - all players use same seed = same obstacles
+        // ============================================
+        let gameSeed = 0;
+        let seededRandom = null;
+
+        /**
+         * Create a seeded PRNG using mulberry32 algorithm
+         * @param {number} seed - The seed value
+         * @returns {function} A function that returns random numbers 0-1
+         */
+        function createSeededRandom(seed) {
+            return function() {
+                seed |= 0;
+                seed = seed + 0x6D2B79F5 | 0;
+                let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+                t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+        }
+
+        /**
+         * Initialize the game with a specific seed
+         * @param {number} seed - Seed for random generation
+         */
+        function initGameSeed(seed) {
+            gameSeed = seed;
+            seededRandom = createSeededRandom(seed);
+            console.log(`[Game] Initialized with seed: ${seed}`);
+        }
+
+        /**
+         * Get a seeded random number (falls back to Math.random if not initialized)
+         * @returns {number} Random number between 0 and 1
+         */
+        function getRandom() {
+            return seededRandom ? seededRandom() : Math.random();
+        }
+
         function initSupabase() {
             if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && typeof window.supabase !== 'undefined') {
                 supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -933,6 +973,18 @@
             localPlayerAlive = true;
             gameResult = null;
 
+            // Initialize seeded random with shared seed for synchronized obstacles
+            if (multiplayerGameSeed) {
+                initGameSeed(multiplayerGameSeed);
+            } else {
+                // Fallback: use lobby ID as seed if no seed received
+                const fallbackSeed = currentLobby?.id ?
+                    currentLobby.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0) :
+                    Date.now();
+                initGameSeed(fallbackSeed);
+                console.warn('[Game] No seed received, using fallback:', fallbackSeed);
+            }
+
             // Initialize all players states from lobby
             initializeMultiplayerPlayers();
 
@@ -964,7 +1016,7 @@
                     username: lp.profiles?.username || 'Player',
                     playerIndex: index,
                     x: xPosition,
-                    y: 0,  // Will be updated
+                    yOffset: 0,  // Offset from ground (0 = standing, negative = jumping)
                     score: 0,
                     bananas: 0,
                     isAlive: true,
@@ -997,13 +1049,14 @@
                     if (data.playerId !== currentUser?.id) {
                         // Update remote player state
                         if (allPlayersStates[data.playerId]) {
-                            allPlayersStates[data.playerId].y = data.y;
+                            // Store yOffset (offset from ground) for screen-size-independent positioning
+                            allPlayersStates[data.playerId].yOffset = data.yOffset || 0;
                             allPlayersStates[data.playerId].score = data.score;
                             allPlayersStates[data.playerId].bananas = data.bananas;
                             allPlayersStates[data.playerId].isAlive = data.isAlive;
                             // Debug: log received state occasionally
                             if (Math.random() < 0.02) { // ~2% of updates to reduce spam
-                                console.log(`[Received] ${allPlayersStates[data.playerId].username}: score=${data.score}, bananas=${data.bananas}, alive=${data.isAlive}`);
+                                console.log(`[Received] ${allPlayersStates[data.playerId].username}: score=${data.score}, bananas=${data.bananas}, yOffset=${data.yOffset}`);
                             }
                         }
 
@@ -1021,10 +1074,21 @@
                         endMultiplayerRound();
                     }
                 })
-                .on('broadcast', { event: 'play_again' }, () => {
-                    // Host triggered play again
+                .on('broadcast', { event: 'play_again' }, (payload) => {
+                    // Host triggered play again - includes new seed
                     if (gameState === 'multiplayer-results') {
+                        if (payload.payload?.seed) {
+                            multiplayerGameSeed = payload.payload.seed;
+                            console.log(`[Play Again] Received seed: ${multiplayerGameSeed}`);
+                        }
                         resetMultiplayerGame();
+                    }
+                })
+                .on('broadcast', { event: 'game_seed' }, (payload) => {
+                    // Receive seed from host before game starts
+                    if (payload.payload?.seed) {
+                        multiplayerGameSeed = payload.payload.seed;
+                        console.log(`[Game] Received seed from host: ${multiplayerGameSeed}`);
                     }
                 })
                 .subscribe((status) => {
@@ -1039,13 +1103,17 @@
         function broadcastPlayerState() {
             if (!gameChannel || !gameChannelReady || gameMode !== 'multiplayer') return;
 
+            // Calculate Y offset from ground (negative when jumping)
+            // This normalizes across different screen sizes
+            const yOffset = player ? (player.y - player.groundY) : 0;
+
             gameChannel.send({
                 type: 'broadcast',
                 event: 'player_update',
                 payload: {
                     playerId: currentUser?.id,
                     playerIndex: localPlayerIndex,
-                    y: player?.y || 0,
+                    yOffset: yOffset,  // Offset from ground, not absolute Y
                     score: score,
                     bananas: bananasCollected,
                     isAlive: localPlayerAlive
@@ -1214,31 +1282,54 @@
             gameState = 'lobby';
         }
 
+        // Multiplayer game seed - shared across all players
+        let multiplayerGameSeed = 0;
+
         async function hostStartGame() {
             if (!supabaseClient || !currentLobby || !isLobbyHost) return;
             if (lobbyPlayers.length < 2) return;
 
-            await supabaseClient
-                .from('game_lobbies')
-                .update({ status: 'playing' })
-                .eq('id', currentLobby.id);
+            // Generate a random seed for this game
+            multiplayerGameSeed = Math.floor(Math.random() * 2147483647);
+            console.log(`[Host] Generated game seed: ${multiplayerGameSeed}`);
+
+            // First, ensure game channel is ready, then broadcast seed
+            if (!gameChannel) {
+                subscribeGameUpdates();
+            }
+
+            // Wait a moment for channel to be ready, then broadcast seed and start
+            setTimeout(async () => {
+                // Broadcast seed to all players
+                if (gameChannel) {
+                    gameChannel.send({
+                        type: 'broadcast',
+                        event: 'game_seed',
+                        payload: { seed: multiplayerGameSeed }
+                    });
+                }
+
+                // Update lobby status to trigger game start for all
+                await supabaseClient
+                    .from('game_lobbies')
+                    .update({ status: 'playing' })
+                    .eq('id', currentLobby.id);
+            }, 500);
         }
 
         async function hostPlayAgain() {
             if (!supabaseClient || !currentLobby || !isLobbyHost) return;
 
-            // Reset game state and broadcast to all players
-            await supabaseClient
-                .from('game_lobbies')
-                .update({ status: 'playing' })
-                .eq('id', currentLobby.id);
+            // Generate new seed for this round
+            multiplayerGameSeed = Math.floor(Math.random() * 2147483647);
+            console.log(`[Host] Generated new game seed for play again: ${multiplayerGameSeed}`);
 
-            // Broadcast play again signal
+            // Broadcast play again signal with new seed
             if (gameChannel) {
                 gameChannel.send({
                     type: 'broadcast',
                     event: 'play_again',
-                    payload: { startTime: Date.now() + 1000 }
+                    payload: { seed: multiplayerGameSeed }
                 });
             }
 
@@ -1271,6 +1362,11 @@
             gameResult = null;
             scoreSaved = false;
 
+            // Initialize seeded random with shared seed for synchronized obstacles
+            if (multiplayerGameSeed) {
+                initGameSeed(multiplayerGameSeed);
+            }
+
             // Reinitialize all players from lobby
             initializeMultiplayerPlayers();
 
@@ -1282,6 +1378,9 @@
                 const playerCount = lobbyPlayers.length;
                 player.x = 80 + ((playerCount - 1 - localPlayerIndex) * PLAYER_STAGGER_X);
             }
+
+            // Set game state to playing
+            gameState = 'playing';
         }
 
         // ============================================
@@ -2484,10 +2583,10 @@
             releaseJump();
         });
 
-        // Spawn entity
+        // Spawn entity - uses seeded random for multiplayer synchronization
         function spawn() {
             const land = lands[selectedLand];
-            const isBanana = Math.random() < 0.35;
+            const isBanana = getRandom() < 0.35;
 
             if (isBanana) {
                 // Spawn single banana
@@ -2505,7 +2604,7 @@
                 });
             } else {
                 // Spawn 1, 2, or 3 obstacles in a row
-                const obstacleCount = Math.floor(Math.random() * 3) + 1;
+                const obstacleCount = Math.floor(getRandom() * 3) + 1;
                 const pixels = land.obstacle;
                 const scale = ENTITY_SCALE;
                 const w = pixels[0].length * scale;
@@ -2526,6 +2625,9 @@
             }
         }
 
+        // Next spawn threshold (calculated deterministically for multiplayer sync)
+        let nextSpawnThreshold = 400;
+
         // Start/restart game
         function startGame() {
             gameState = 'playing';
@@ -2542,6 +2644,8 @@
             jumpBufferTime = 0;
             jumpHeld = false;
             scoreSaved = false;
+            // Calculate first spawn threshold deterministically
+            nextSpawnThreshold = 280 + getRandom() * 220;
         }
 
         // Update game logic
@@ -2552,10 +2656,12 @@
             speed += 0.002; // Gradually increase speed
             spawnCounter += speed;
 
-            // Spawn logic (random spacing)
-            if (spawnCounter > 280 + Math.random() * 220) {
+            // Spawn logic (deterministic spacing for multiplayer sync)
+            if (spawnCounter > nextSpawnThreshold) {
                 spawn();
                 spawnCounter = 0;
+                // Calculate next threshold using seeded random
+                nextSpawnThreshold = 280 + getRandom() * 220;
             }
 
             // Player physics with variable jump height
@@ -2682,7 +2788,8 @@
             if (gameMode === 'multiplayer' && gameTime % 5 === 0) {
                 // Update local player state in shared state before broadcasting
                 if (currentUser?.id && allPlayersStates[currentUser.id]) {
-                    allPlayersStates[currentUser.id].y = player?.y || 0;
+                    // Store yOffset for consistency (though local rendering uses player.y directly)
+                    allPlayersStates[currentUser.id].yOffset = player ? (player.y - player.groundY) : 0;
                     allPlayersStates[currentUser.id].score = score;
                     allPlayersStates[currentUser.id].bananas = bananasCollected;
                     allPlayersStates[currentUser.id].isAlive = localPlayerAlive;
@@ -3266,9 +3373,9 @@
 
                 // In multiplayer, draw all players
                 if (gameMode === 'multiplayer') {
-                    // Update local player state for broadcasting
+                    // Update local player state for rendering
                     if (allPlayersStates[currentUser?.id]) {
-                        allPlayersStates[currentUser.id].y = player.y;
+                        allPlayersStates[currentUser.id].yOffset = player.y - player.groundY;
                         allPlayersStates[currentUser.id].score = score;
                         allPlayersStates[currentUser.id].bananas = bananasCollected;
                     }
@@ -3277,9 +3384,14 @@
                     const playersToDraw = Object.values(allPlayersStates)
                         .sort((a, b) => a.x - b.x);
 
+                    // Get local ground position for rendering
+                    const localGroundY = player.groundY;
+
                     playersToDraw.forEach(p => {
                         const isLocal = p.id === currentUser?.id;
-                        const yPos = isLocal ? player.y : p.y;
+                        // For local player, use actual position
+                        // For remote players, calculate from local ground + their offset
+                        const yPos = isLocal ? player.y : (localGroundY + (p.yOffset || 0));
 
                         // Ghost players are semi-transparent
                         if (!p.isAlive) {
