@@ -1149,6 +1149,10 @@
             document.getElementById('authSuccess').style.display = 'none';
         }
 
+        // Expose functions to global scope for HTML onclick handlers
+        window.toggleAuthMode = toggleAuthMode;
+        window.logout = logout;
+
         function showAuthError(message) {
             document.getElementById('authError').textContent = message;
             document.getElementById('authSuccess').style.display = 'none';
@@ -2290,57 +2294,65 @@
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 const centerX = canvas.width / 2;
-                let y = DS.spacing.xxl;
 
-                // Title
+                // Compact mode for small screens
+                const isCompact = canvas.height < 600;
+
+                let y = isCompact ? DS.spacing.lg : DS.spacing.xxl;
+
+                // Title - smaller on compact
                 ctx.textAlign = 'center';
                 ctx.fillStyle = DS.colors.primary;
-                ctx.font = DS.font('h1', 'bold');
-                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize('h1'));
-                y += DS.fontSize('h1') + DS.spacing.lg;
+                const titleSize = isCompact ? 'h2' : 'h1';
+                ctx.font = DS.font(titleSize, 'bold');
+                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize(titleSize));
+                y += DS.fontSize(titleSize) + (isCompact ? DS.spacing.md : DS.spacing.lg);
 
-                // Draw banana sprite as logo
-                const bananaScale = Math.max(2, Math.round(canvas.width / 400));
+                // Draw banana sprite as logo - smaller on compact
+                const bananaScale = isCompact ? Math.max(1, Math.round(canvas.width / 500)) : Math.max(2, Math.round(canvas.width / 400));
                 const bananaWidth = sprites.banana[0].length * bananaScale;
                 drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
-                y += sprites.banana.length * bananaScale + DS.spacing.xl;
+                y += sprites.banana.length * bananaScale + (isCompact ? DS.spacing.md : DS.spacing.xl);
 
                 // Tagline
                 ctx.fillStyle = DS.colors.textPrimary;
-                ctx.font = DS.font('h3');
+                ctx.font = DS.font(isCompact ? 'body' : 'h3');
                 ctx.fillText('An endless runner adventure!', centerX, y);
-                y += DS.fontSize('h3') + DS.spacing.xl;
+                y += DS.fontSize(isCompact ? 'body' : 'h3') + (isCompact ? DS.spacing.md : DS.spacing.xl);
 
-                // Features panel
-                const panelWidth = Math.min(500, canvas.width - DS.spacing.xl * 2);
-                const panelHeight = DS.fontSize('body') * 4 + DS.spacing.lg * 2;
-                drawPanel(centerX, y, panelWidth, panelHeight, { centered: true });
+                // Features panel - condensed on compact
+                if (!isCompact) {
+                    const panelWidth = Math.min(500, canvas.width - DS.spacing.xl * 2);
+                    const panelHeight = DS.fontSize('body') * 4 + DS.spacing.lg * 2;
+                    drawPanel(centerX, y, panelWidth, panelHeight, { centered: true });
 
-                ctx.fillStyle = DS.colors.textSecondary;
-                ctx.font = DS.font('body');
-                const featureY = y + DS.spacing.lg + DS.fontSize('body');
-                ctx.fillText('Jump over obstacles & collect bananas', centerX, featureY);
-                ctx.fillText('Compete in multiplayer battles', centerX, featureY + DS.fontSize('body') + DS.spacing.sm);
-                ctx.fillText('Unlock achievements & climb ranks', centerX, featureY + (DS.fontSize('body') + DS.spacing.sm) * 2);
-                y += panelHeight + DS.spacing.xl;
+                    ctx.fillStyle = DS.colors.textSecondary;
+                    ctx.font = DS.font('body');
+                    const featureY = y + DS.spacing.lg + DS.fontSize('body');
+                    ctx.fillText('Jump over obstacles & collect bananas', centerX, featureY);
+                    ctx.fillText('Compete in multiplayer battles', centerX, featureY + DS.fontSize('body') + DS.spacing.sm);
+                    ctx.fillText('Unlock achievements & climb ranks', centerX, featureY + (DS.fontSize('body') + DS.spacing.sm) * 2);
+                    y += panelHeight + DS.spacing.xl;
+                }
 
                 // Feature highlights
                 ctx.fillStyle = DS.colors.primary;
                 ctx.font = DS.font('small', 'bold');
                 ctx.fillText('4 LANDS  •  MULTIPLAYER  •  LEADERBOARDS', centerX, y);
-                y += DS.fontSize('small') + DS.spacing.xxl;
+                y += DS.fontSize('small') + (isCompact ? DS.spacing.lg : DS.spacing.xxl);
 
-                // Login button
-                const btnWidth = Math.min(280, canvas.width - DS.spacing.xl * 2);
-                const btnHeight = DS.button.height();
+                // Login button - smaller on compact
+                const btnWidth = Math.min(isCompact ? 220 : 280, canvas.width - DS.spacing.lg * 2);
+                const btnHeight = isCompact ? Math.max(44, DS.button.height() * 0.85) : DS.button.height();
                 const btnBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'GET STARTED', { action: 'login', primary: true });
                 addClickable(btnBounds);
-                y += btnHeight + DS.spacing.lg;
 
-                // Footer
-                ctx.fillStyle = DS.colors.textMuted;
-                ctx.font = DS.font('small');
-                ctx.fillText('Create an account to save progress', centerX, canvas.height - DS.spacing.xl);
+                // Footer - only if room
+                if (canvas.height - y - btnHeight > 50) {
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('small');
+                    ctx.fillText('Create an account to save progress', centerX, canvas.height - DS.spacing.md);
+                }
 
             } else if (gameState === 'menu') {
                 // Menu screen - shown after login
@@ -2349,51 +2361,65 @@
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 const centerX = canvas.width / 2;
-                let y = DS.spacing.xl;
 
-                // Title
+                // Compact mode for small screens
+                const isCompact = canvas.height < 600;
+                const compactSpacing = isCompact ? DS.spacing.sm : DS.spacing.md;
+                const compactLgSpacing = isCompact ? DS.spacing.md : DS.spacing.lg;
+
+                let y = isCompact ? DS.spacing.md : DS.spacing.xl;
+
+                // Title - smaller on compact screens
                 ctx.textAlign = 'center';
                 ctx.fillStyle = DS.colors.white;
-                ctx.font = DS.font('h1', 'bold');
-                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize('h1'));
-                y += DS.fontSize('h1') + DS.spacing.md;
+                const titleSize = isCompact ? 'h2' : 'h1';
+                ctx.font = DS.font(titleSize, 'bold');
+                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize(titleSize));
+                y += DS.fontSize(titleSize) + compactSpacing;
 
-                // Draw banana sprite as logo
-                const bananaScale = Math.max(2, Math.round(canvas.width / 400));
+                // Draw banana sprite as logo - smaller on compact
+                const bananaScale = isCompact ? Math.max(1, Math.round(canvas.width / 500)) : Math.max(2, Math.round(canvas.width / 400));
                 const bananaWidth = sprites.banana[0].length * bananaScale;
                 drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
-                y += sprites.banana.length * bananaScale + DS.spacing.lg;
+                y += sprites.banana.length * bananaScale + compactLgSpacing;
 
-                // User stats panel
+                // User stats panel - condensed on compact
                 if (userProfile) {
-                    const statsPanelWidth = Math.min(420, canvas.width - DS.spacing.xl * 2);
-                    const statsPanelHeight = DS.fontSize('body') * 3 + DS.spacing.lg * 2;
+                    const statsPanelWidth = Math.min(isCompact ? 320 : 420, canvas.width - DS.spacing.lg * 2);
+                    const statsFont = isCompact ? 'small' : 'body';
+                    const statsPanelHeight = isCompact
+                        ? DS.fontSize('small') * 2.5 + DS.spacing.md * 2
+                        : DS.fontSize('body') * 3 + DS.spacing.lg * 2;
                     drawPanel(centerX, y, statsPanelWidth, statsPanelHeight, { centered: true });
 
-                    const statsY = y + DS.spacing.lg + DS.fontSize('body') / 2;
+                    const statsY = y + (isCompact ? DS.spacing.md : DS.spacing.lg) + DS.fontSize(statsFont) / 2;
                     ctx.fillStyle = DS.colors.primary;
-                    ctx.font = DS.font('body', 'bold');
-                    ctx.fillText(`${userProfile.username || 'Player'}`, centerX, statsY);
+                    ctx.font = DS.font(statsFont, 'bold');
+                    ctx.fillText(`${userProfile.username || 'Player'}  •  High: ${userProfile.high_score || 0}`, centerX, statsY);
 
-                    ctx.fillStyle = DS.colors.white;
-                    ctx.font = DS.font('body');
-                    ctx.fillText(`High Score: ${userProfile.high_score || 0}`, centerX, statsY + DS.fontSize('body') + DS.spacing.xs);
+                    if (!isCompact) {
+                        ctx.fillStyle = DS.colors.white;
+                        ctx.font = DS.font('body');
+                        ctx.fillText(`High Score: ${userProfile.high_score || 0}`, centerX, statsY + DS.fontSize('body') + DS.spacing.xs);
+                    }
 
                     ctx.fillStyle = DS.colors.textSecondary;
                     ctx.font = DS.font('small');
-                    ctx.fillText(`${userProfile.total_bananas || 0} bananas  |  ${userProfile.total_games || 0} games`, centerX, statsY + (DS.fontSize('body') + DS.spacing.xs) * 2);
-                    y += statsPanelHeight + DS.spacing.lg;
+                    const statsLine2Y = isCompact ? statsY + DS.fontSize('small') + DS.spacing.xs : statsY + (DS.fontSize('body') + DS.spacing.xs) * 2;
+                    ctx.fillText(`${userProfile.total_bananas || 0} 🍌  |  ${userProfile.total_games || 0} games`, centerX, statsLine2Y);
+                    y += statsPanelHeight + compactLgSpacing;
                 }
 
                 // Land selection
                 y = drawSectionTitle('SELECT LAND', y);
+                const landBtnHeight = isCompact ? 40 : 50;
                 drawLandButtons(y, false);
-                y += 50 + DS.spacing.xl; // Land button height + spacing
+                y += landBtnHeight + compactLgSpacing;
 
-                // Menu buttons using design system
-                const btnWidth = Math.min(240, canvas.width - DS.spacing.xl * 2);
-                const btnHeight = DS.button.height();
-                const gap = DS.spacing.md;
+                // Menu buttons - smaller on compact screens
+                const btnWidth = Math.min(isCompact ? 200 : 240, canvas.width - DS.spacing.lg * 2);
+                const btnHeight = isCompact ? Math.max(40, DS.button.height() * 0.8) : DS.button.height();
+                const gap = isCompact ? DS.spacing.sm : DS.spacing.md;
 
                 const soloBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'SOLO PLAY', { action: 'solo', primary: true });
                 addClickable(soloBounds);
@@ -2406,10 +2432,12 @@
                 const leaderBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'LEADERBOARD', { action: 'leaderboard', primary: false });
                 addClickable(leaderBounds);
 
-                // Instructions
-                ctx.fillStyle = DS.colors.textMuted;
-                ctx.font = DS.font('small');
-                ctx.fillText('Press SPACE or tap to jump!', centerX, canvas.height - DS.spacing.xl);
+                // Instructions - only show if there's room
+                if (canvas.height - y > 60) {
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('small');
+                    ctx.fillText('Press SPACE or tap to jump!', centerX, canvas.height - DS.spacing.md);
+                }
 
             } else if (gameState === 'leaderboard') {
                 // Leaderboard screen
