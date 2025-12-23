@@ -38,7 +38,7 @@ Run through 4 unique lands, grab bananas, and see how far you can go. Unlock 20+
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/bbb-banana-runner.git
+git clone https://github.com/EvanCNavarro/bbb-banana-runner.git
 
 # Start local server
 python3 -m http.server 8000
