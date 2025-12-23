@@ -1864,6 +1864,11 @@
         // JUMP_BUFFER_MS imported from config.js
         let jumpBufferTime = 0;
 
+        // Variable jump height - track if jump button is held
+        let jumpHeld = false;
+        const JUMP_RELEASE_MULTIPLIER = 0.4;  // Velocity multiplier when releasing early
+        const FALL_GRAVITY_MULTIPLIER = 1.5;  // Extra gravity when falling or released
+
         // Land selection buttons (will be calculated in draw)
         let landButtons = [];
         // Menu action buttons (Solo, Multiplayer, Leaderboard, Login)
@@ -1966,12 +1971,22 @@
                     // On ground - jump immediately
                     player.vy = -18;
                     player.jumping = true;
+                    jumpHeld = true;
                     jumpBufferTime = 0;
                 } else {
                     // In air - buffer the jump request
                     jumpBufferTime = Date.now();
                 }
             }
+        }
+
+        // Release jump - called when button/touch is released
+        function releaseJump() {
+            if (jumpHeld && player.jumping && player.vy < 0) {
+                // Still rising - cut the velocity for a short hop
+                player.vy *= JUMP_RELEASE_MULTIPLIER;
+            }
+            jumpHeld = false;
         }
 
         document.addEventListener('keydown', (e) => {
@@ -1992,6 +2007,13 @@
             }
         });
 
+        // Release jump on keyup for variable jump height
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                releaseJump();
+            }
+        });
+
         // Touch support for mobile
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
@@ -2001,6 +2023,12 @@
             } else {
                 jump();
             }
+        });
+
+        // Release jump on touch end for variable jump height
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            releaseJump();
         });
 
         canvas.addEventListener('click', (e) => {
@@ -2013,6 +2041,11 @@
             } else {
                 jump();
             }
+        });
+
+        // Mouse up for variable jump height (when using click instead of touch)
+        canvas.addEventListener('mouseup', (e) => {
+            releaseJump();
         });
 
         // Spawn entity
@@ -2071,6 +2104,7 @@
             player.vy = 0;
             player.jumping = false;
             jumpBufferTime = 0;
+            jumpHeld = false;
             scoreSaved = false;
         }
 
@@ -2088,19 +2122,32 @@
                 spawnCounter = 0;
             }
 
-            // Player physics
+            // Player physics with variable jump height
             if (player.jumping) {
-                player.vy += 0.8; // Gravity
+                // Base gravity
+                let gravity = 0.8;
+
+                // Apply extra gravity when:
+                // - Falling (vy > 0), OR
+                // - Rising but button released (for snappy short hops)
+                if (player.vy > 0 || !jumpHeld) {
+                    gravity *= FALL_GRAVITY_MULTIPLIER;
+                }
+
+                player.vy += gravity;
                 player.y += player.vy;
+
                 if (player.y >= player.groundY) {
                     player.y = player.groundY;
                     player.jumping = false;
                     player.vy = 0;
+                    jumpHeld = false;  // Reset held state on landing
 
                     // Check for buffered jump - if player pressed jump recently, jump again
                     if (jumpBufferTime > 0 && (Date.now() - jumpBufferTime) < JUMP_BUFFER_MS) {
                         player.vy = -18;
                         player.jumping = true;
+                        jumpHeld = true;  // Assume held for buffered jump
                         jumpBufferTime = 0;
                     }
                 }
