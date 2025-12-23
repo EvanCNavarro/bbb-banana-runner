@@ -4224,7 +4224,7 @@
         let bubbleShieldCount = 0;    // Number of bubble shields (stackable)
         let pogoStickCount = 0;       // Number of pogos (stackable, multiplies jump)
         let lionRoarUsed = false;     // Lion already used this run
-        let obstaclesShrunk = false;  // Obstacles are at 50% size
+        let obstaclesShrunk = false;  // Obstacles are at 80% size (20% reduction)
 
         // ============================================
         // TIME-BASED BUFFS (10 seconds each)
@@ -5143,10 +5143,10 @@
             // Scale velocity (sqrt for more natural feel - half height = ~70% velocity)
             let velocity = BASE_JUMP_VELOCITY * Math.sqrt(heightRatio);
 
-            // POGO STICK BOOST: Each pogo adds 50% more height (1.5^count)
-            // 1 pogo = 1.5x, 2 pogos = 2.25x, 3 pogos = 3.375x
+            // POGO STICK BOOST: Each pogo adds 25% more height (1.25^count)
+            // 1 pogo = 1.25x, 2 pogos = 1.56x, 3 pogos = 1.95x
             if (pogoStickCount > 0) {
-                velocity *= Math.pow(1.5, pogoStickCount);
+                velocity *= Math.pow(1.25, pogoStickCount);
             }
 
             return velocity;
@@ -5749,8 +5749,8 @@
                 if (useAnimal) {
                     // Animal obstacles are double-wide, spawn as single unit
                     const pixels = land.animalObstacle;
-                    // LION ROAR: Shrink obstacles to 50% if active
-                    const scale = obstaclesShrunk ? ENTITY_SCALE * 0.5 : ENTITY_SCALE;
+                    // LION ROAR: Shrink obstacles to 80% if active (20% reduction)
+                    const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
                     const h = pixels.length * scale;
                     const currentSpawnId = spawnIdCounter++;
 
@@ -5780,8 +5780,8 @@
                     // Random obstacle count up to max
                     const obstacleCount = Math.floor(getRandom() * maxObstacles) + 1;
                     const pixels = land.obstacle;
-                    // LION ROAR: Shrink obstacles to 50% if active
-                    const scale = obstaclesShrunk ? ENTITY_SCALE * 0.5 : ENTITY_SCALE;
+                    // LION ROAR: Shrink obstacles to 80% if active (20% reduction)
+                    const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
                     const w = pixels[0].length * scale;
                     const h = pixels.length * scale;
                     const gap = 4; // Small gap between obstacles
@@ -6278,10 +6278,10 @@
                                 obstaclesShrunk = true;
                                 sessionLionsCollected++;
 
-                                // Shrink ALL existing obstacles immediately
+                                // Shrink ALL existing obstacles immediately (20% reduction)
                                 for (let j = 0; j < entities.length; j++) {
                                     if (entities[j].type === 'obstacle') {
-                                        entities[j].scale *= 0.5;
+                                        entities[j].scale *= 0.8;
                                     }
                                 }
 
