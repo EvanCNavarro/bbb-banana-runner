@@ -4308,9 +4308,16 @@
         let jumpBonusScore = 0; // Accumulated jump bonus points
 
         // ============================================
+        // CONSECUTIVE OBSTACLE PREVENTION
+        // ============================================
+        // Prevent more than 2 consecutive spawns of same obstacle count
+        let lastObstacleCount = 0; // Previous obstacle count
+        let consecutiveSameCount = 0; // How many times same count spawned in a row
+
+        // ============================================
         // POWER-UP SYSTEM - SHARED CONSTANTS
         // ============================================
-        const TIME_BUFF_DURATION = 600; // 10 seconds at 60fps for all time-based buffs
+        const TIME_BUFF_DURATION = 420; // 7 seconds at 60fps for all time-based buffs
         let powerUpBonusScore = 0; // Accumulated power-up bonus points
         let powerUpSpawnCounter = 0; // Track spawns to guarantee power-ups
 
@@ -4325,7 +4332,7 @@
         let obstaclesShrunk = false;  // Obstacles are at 80% size (20% reduction)
 
         // ============================================
-        // TIME-BASED BUFFS (10 seconds each)
+        // TIME-BASED BUFFS (7 seconds each)
         // ============================================
         // Jetpack - fly above obstacles
         let jetpackActive = false;
@@ -4355,23 +4362,23 @@
         let moneyActive = false;
         let moneyTimer = 0;
         let moneyBonusAccumulated = 0; // Extra points earned from 2x multiplier
-        const MONEY_DURATION = 600; // 10 seconds
+        const MONEY_DURATION = 420; // 7 seconds
 
-        // Helper function to add bonus points (doubles when money is active)
+        // Helper function to add bonus points (shows 2x text when money is active)
+        // Note: The actual 2x doubling is handled by the score tracking system
         function addBonusPoints(points, x, y, showText = true) {
             powerUpBonusScore += points;
-            if (moneyActive) {
-                moneyBonusAccumulated += points; // Double by adding extra
-                if (showText) spawnFloatingText(x, y, `+${points * 2} (2X!)`);
-            } else {
-                if (showText) spawnFloatingText(x, y, `+${points}`);
+            if (moneyActive && showText) {
+                spawnFloatingText(x, y, `+${points * 2} (2X!)`);
+            } else if (showText) {
+                spawnFloatingText(x, y, `+${points}`);
             }
         }
 
-        // Laser - disco ball destruction beams (5 seconds)
+        // Laser - disco ball destruction beams (7 seconds)
         let laserActive = false;
         let laserTimer = 0;
-        const LASER_DURATION = 300; // 5 seconds (half of normal 10s)
+        const LASER_DURATION = 420; // 7 seconds (same as other time-based buffs)
         let laserAngle = 0;  // For spinning laser effect
 
         // ============================================
@@ -5872,7 +5879,9 @@
             } else {
                 // Obstacle spawning with progressive difficulty
                 // At 4000+ points, mix in animal obstacles (50% chance)
-                const useAnimal = score >= 4000 && getRandom() < 0.5 && land.animalObstacle;
+                // But don't allow if we've already had 2 consecutive "2-count" obstacles
+                const wouldBeThirdConsecutive = lastObstacleCount === 2 && consecutiveSameCount >= 1;
+                const useAnimal = score >= 4000 && getRandom() < 0.5 && land.animalObstacle && !wouldBeThirdConsecutive;
 
                 if (useAnimal) {
                     // Animal obstacles are double-wide, spawn as single unit
@@ -5881,6 +5890,14 @@
                     const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
                     const h = pixels.length * scale;
                     const currentSpawnId = spawnIdCounter++;
+
+                    // Update consecutive tracking (animals count as 2)
+                    if (lastObstacleCount === 2) {
+                        consecutiveSameCount++;
+                    } else {
+                        consecutiveSameCount = 0;
+                    }
+                    lastObstacleCount = 2;
 
                     entities.push({
                         x: canvas.width + 20,
@@ -5906,7 +5923,27 @@
                     }
 
                     // Random obstacle count up to max
-                    const obstacleCount = Math.floor(getRandom() * maxObstacles) + 1;
+                    let obstacleCount = Math.floor(getRandom() * maxObstacles) + 1;
+
+                    // Prevent 3+ consecutive spawns of same obstacle count
+                    if (obstacleCount === lastObstacleCount && consecutiveSameCount >= 1 && maxObstacles > 1) {
+                        // Force a different count - pick randomly from remaining options
+                        const options = [];
+                        for (let c = 1; c <= maxObstacles; c++) {
+                            if (c !== lastObstacleCount) options.push(c);
+                        }
+                        if (options.length > 0) {
+                            obstacleCount = options[Math.floor(getRandom() * options.length)];
+                        }
+                    }
+
+                    // Update consecutive tracking
+                    if (obstacleCount === lastObstacleCount) {
+                        consecutiveSameCount++;
+                    } else {
+                        consecutiveSameCount = 0;
+                    }
+                    lastObstacleCount = obstacleCount;
                     const pixels = land.obstacle;
                     // LION ROAR: Shrink obstacles to 80% if active (20% reduction)
                     const scale = obstaclesShrunk ? ENTITY_SCALE * 0.8 : ENTITY_SCALE;
@@ -5952,6 +5989,8 @@
             obstaclesJumpedOver = new Set(); // Reset jump tracking
             spawnIdCounter = 0; // Reset spawn ID counter
             jumpBonusScore = 0; // Reset jump bonus
+            lastObstacleCount = 0; // Reset consecutive obstacle tracking
+            consecutiveSameCount = 0;
             // Reset jetpack state
             jetpackActive = false;
             jetpackTimer = 0;
@@ -6184,34 +6223,54 @@
 
                 ent.x -= speed * gameDelta; // Use gameDelta for turtle slow-mo
 
-                // LASER BEAM collision - destroy obstacles hit by spinning laser beams
-                if (laserActive && ent.type === 'obstacle') {
+                // LASER BEAM collision - destroy ALL entities (obstacles, bananas, powerups)
+                // The laser is a "mass destruction" power-up - destroys everything the beams touch
+                if (laserActive) {
                     const playerCenterX = player.x + PLAYER_WIDTH / 2;
                     const playerCenterY = player.y + PLAYER_HEIGHT / 2;
                     const entCenterX = ent.x + (ent.pixels[0].length * ent.scale) / 2;
                     const entCenterY = ent.y + (ent.pixels.length * ent.scale) / 2;
-                    const beamLength = 200;
+                    const beamLength = 300; // Extended range for better coverage
                     const beamCount = 8;
 
-                    // Check if obstacle is within beam range
-                    const distToObstacle = Math.sqrt(Math.pow(entCenterX - playerCenterX, 2) + Math.pow(entCenterY - playerCenterY, 2));
-                    if (distToObstacle < beamLength) {
-                        // Calculate angle to obstacle
-                        const angleToObstacle = Math.atan2(entCenterY - playerCenterY, entCenterX - playerCenterX);
+                    // Check if entity is within beam range
+                    const distToEntity = Math.sqrt(Math.pow(entCenterX - playerCenterX, 2) + Math.pow(entCenterY - playerCenterY, 2));
+                    if (distToEntity < beamLength) {
+                        // Calculate angle to entity
+                        const angleToEntity = Math.atan2(entCenterY - playerCenterY, entCenterX - playerCenterX);
 
-                        // Check if any beam is pointing at the obstacle (within tolerance)
+                        // Check if any beam is pointing at the entity (within tolerance)
                         let laserDestroyed = false;
                         for (let b = 0; b < beamCount; b++) {
                             const beamAngle = laserAngle + (b * Math.PI * 2 / beamCount);
                             // Normalize angles for comparison
                             let angleDiff = Math.abs(((beamAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) -
-                                                     ((angleToObstacle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
+                                                     ((angleToEntity % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
                             if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
 
-                            // If beam angle matches obstacle angle (with tolerance), destroy it
-                            if (angleDiff < 0.25) { // ~15 degrees tolerance
+                            // If beam angle matches entity angle (with generous tolerance), destroy it
+                            // 8 beams at 45° apart, with 0.6 rad (34°) tolerance = nearly full coverage
+                            if (angleDiff < 0.6) {
+                                // Award points based on entity type
+                                if (ent.type === 'obstacle') {
+                                    addBonusPoints(15, entCenterX, entCenterY - 20);
+                                } else if (ent.type === 'banana') {
+                                    // Bananas give 150 per banana (300 for bundle)
+                                    const bananaValue = ent.bananaValue || 1;
+                                    const points = bananaValue * 150;
+                                    bananasCollected += bananaValue; // Count as collected!
+                                    addBonusPoints(points, entCenterX, entCenterY - 20);
+                                } else if (ent.type === 'powerup') {
+                                    // Power-ups give their normal collection bonus (but NO effect activation)
+                                    const powerupPoints = {
+                                        'jetpack': 100, 'trex': 100, 'turtle': 100,
+                                        'star': 150, 'money': 100, 'laser': 125,
+                                        'bubble': 75, 'pogo': 75, 'lion': 100
+                                    };
+                                    const points = powerupPoints[ent.powerupType] || 50;
+                                    addBonusPoints(points, entCenterX, entCenterY - 20);
+                                }
                                 entities.splice(i, 1);
-                                addBonusPoints(15, entCenterX, entCenterY - 20);
                                 laserDestroyed = true;
                                 break; // Exit beam loop
                             }
@@ -6334,9 +6393,8 @@
                             // Show floating text (+150 for single, +300 for bundle)
                             const pointsGained = bananaValue * 150;
 
-                            // MONEY POWER-UP: Double banana points by adding extra to bonus
+                            // Show 2x text when money active (actual doubling handled by score tracking)
                             if (moneyActive) {
-                                moneyBonusAccumulated += pointsGained; // Add extra 150/300 for 2x
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained * 2} (2X!)`);
                             } else {
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, `+${pointsGained}`);
@@ -6356,7 +6414,7 @@
                             if (ent.powerupType === 'jetpack' && !jetpackActive && !trexActive) {
                                 // Activate jetpack - hovers at banana collection height
                                 jetpackActive = true;
-                                jetpackTimer = TIME_BUFF_DURATION; // 10 seconds (600 frames)
+                                jetpackTimer = TIME_BUFF_DURATION; // 7 seconds (420 frames)
                                 jetpackTargetY = player.groundY - JETPACK_FLY_HEIGHT;
                                 player.jumping = false; // Cancel any current jump
                                 player.vy = 0;
@@ -6375,7 +6433,7 @@
                             } else if (ent.powerupType === 'trex' && !trexActive && !jetpackActive) {
                                 // Activate T-Rex!
                                 trexActive = true;
-                                trexTimer = TIME_BUFF_DURATION; // Now 10 seconds (600 frames)
+                                trexTimer = TIME_BUFF_DURATION; // 7 seconds (420 frames)
                                 player.jumping = false; // Cancel any current jump
                                 player.y = player.groundY; // Lock to ground
                                 player.vy = 0;
@@ -6394,7 +6452,7 @@
                             } else if (ent.powerupType === 'turtle' && !turtleActive) {
                                 // Activate Turtle Time!
                                 turtleActive = true;
-                                turtleTimer = TIME_BUFF_DURATION; // 10 seconds
+                                turtleTimer = TIME_BUFF_DURATION; // 7 seconds
 
                                 // Track turtle collection
                                 sessionTurtlesCollected++;
@@ -6410,7 +6468,7 @@
                             } else if (ent.powerupType === 'star' && !starActive) {
                                 // Activate Star Invincibility!
                                 starActive = true;
-                                starTimer = TIME_BUFF_DURATION; // 10 seconds
+                                starTimer = TIME_BUFF_DURATION; // 7 seconds
                                 starColorIndex = 0;
 
                                 // Track star collection
@@ -6427,15 +6485,14 @@
                             } else if (ent.powerupType === 'money' && !moneyActive) {
                                 // Activate Double Points!
                                 moneyActive = true;
-                                moneyTimer = MONEY_DURATION; // 10 seconds
+                                moneyTimer = MONEY_DURATION; // 7 seconds
                                 moneyBonusAccumulated = 0; // Reset bonus tracker
 
                                 // Track money collection
                                 sessionMoneyCollected++;
 
-                                // Award bonus points (this is the start of 2x, so double it manually)
+                                // Award bonus points (2x kicks in immediately, so show 200)
                                 powerUpBonusScore += 100;
-                                moneyBonusAccumulated += 100; // This gives 200 total (100 base + 100 bonus)
                                 spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+200 (2X!)');
 
                                 // Announce power-up
@@ -6446,7 +6503,7 @@
                             } else if (ent.powerupType === 'laser' && !laserActive) {
                                 // Activate Laser Eyes!
                                 laserActive = true;
-                                laserTimer = LASER_DURATION; // 5 seconds
+                                laserTimer = LASER_DURATION; // 7 seconds
                                 laserAngle = 0;
 
                                 // Track laser collection
@@ -6533,8 +6590,8 @@
                         jumpBonusScore += bonus;
                         obstaclesJumpedOver.add(ent.spawnId);
 
-                        // Show floating text above player
-                        const bonusText = `+${bonus}`;
+                        // Show floating text above player (2x handled by score tracking)
+                        const bonusText = moneyActive ? `+${bonus * 2} (2X!)` : `+${bonus}`;
                         spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 30, bonusText);
                     }
                 }
@@ -7890,7 +7947,7 @@
                     if (laserActive) {
                         ctx.save();
                         const beamCount = 8; // Number of laser beams
-                        const beamLength = 200; // How far beams reach
+                        const beamLength = 300; // How far beams reach (matches collision check)
                         const beamWidth = 3;
 
                         for (let i = 0; i < beamCount; i++) {
