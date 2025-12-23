@@ -749,7 +749,8 @@
             // Calculate game duration in seconds (gameTime is in frames at 60fps)
             const gameDurationSeconds = Math.floor(gameTime / 60);
 
-            // Save to game_sessions with all tracked data
+            // Save to game_sessions with basic tracked data
+            // Note: Only using columns that exist in the base schema
             const { error: sessionError } = await supabaseClient
                 .from('game_sessions')
                 .insert({
@@ -758,43 +759,25 @@
                     bananas_collected: bananas,
                     land_played: landPlayed,
                     game_mode: isMultiplayer ? 'multiplayer' : 'solo',
-                    duration: gameDurationSeconds,
-                    highest_level: highestLevelReached,
-                    jetpacks_used: sessionJetpacksCollected,
-                    dino_stomps_used: sessionDinoStompsCollected,
-                    bubbles_used: sessionBubblesCollected,
-                    pogos_used: sessionPogosCollected,
-                    lions_used: sessionLionsCollected,
-                    turtles_used: sessionTurtlesCollected,
-                    stars_used: sessionStarsCollected,
-                    bubble_hits_absorbed: sessionBubbleHitsAbsorbed
+                    duration: gameDurationSeconds
                 });
 
             if (sessionError) {
                 console.error('Error saving session:', sessionError);
-                return;
+                // Don't return - still try to update profile even if session save fails
             }
 
-            // Update profile stats with comprehensive tracking
+            // Update profile stats with core tracking
+            // Note: Only using columns from base schema to avoid DB errors
             if (userProfile) {
                 const now = new Date().toISOString();
                 const updates = {
-                    // Core stats
+                    // Core stats (base schema columns)
                     total_games: (userProfile.total_games || 0) + 1,
                     total_bananas: (userProfile.total_bananas || 0) + bananas,
                     total_score: (userProfile.total_score || 0) + finalScore,
                     spendable_bananas: (userProfile.spendable_bananas || 0) + bananas,
                     total_time_played: (userProfile.total_time_played || 0) + gameDurationSeconds,
-
-                    // Power-up stats
-                    jetpacks_collected: (userProfile.jetpacks_collected || 0) + sessionJetpacksCollected,
-                    dino_stomps_collected: (userProfile.dino_stomps_collected || 0) + sessionDinoStompsCollected,
-                    bubbles_collected: (userProfile.bubbles_collected || 0) + sessionBubblesCollected,
-                    bubble_hits_absorbed: (userProfile.bubble_hits_absorbed || 0) + sessionBubbleHitsAbsorbed,
-                    pogos_collected: (userProfile.pogos_collected || 0) + sessionPogosCollected,
-                    lions_collected: (userProfile.lions_collected || 0) + sessionLionsCollected,
-                    turtles_collected: (userProfile.turtles_collected || 0) + sessionTurtlesCollected,
-                    stars_collected: (userProfile.stars_collected || 0) + sessionStarsCollected,
 
                     // Timestamps
                     last_game_at: now
