@@ -925,51 +925,140 @@
                 .eq('id', currentLobby.id);
         }
 
+        // Visual stagger: each player is 60px apart horizontally
+        const PLAYER_STAGGER_X = 60;
+
         function startMultiplayerGame() {
             gameMode = 'multiplayer';
-            opponentScore = 0;
-            opponentBananas = 0;
+            localPlayerAlive = true;
             gameResult = null;
+
+            // Initialize all players states from lobby
+            initializeMultiplayerPlayers();
+
+            // Start the game
             startGame();
 
-            // Subscribe to opponent updates
+            // Position local player based on their index
+            if (player) {
+                player.x = 80 + (localPlayerIndex * PLAYER_STAGGER_X);
+            }
+
+            // Subscribe to game updates from all players
             if (supabaseClient && currentLobby) {
                 subscribeGameUpdates();
             }
         }
 
+        function initializeMultiplayerPlayers() {
+            // Create player state objects for all lobby players
+            allPlayersStates = {};
+            multiplayerPlayers = lobbyPlayers.map((lp, index) => {
+                const playerState = {
+                    id: lp.player_id,
+                    username: lp.profiles?.username || 'Player',
+                    playerIndex: index,
+                    x: 80 + (index * PLAYER_STAGGER_X),
+                    y: 0,  // Will be updated
+                    score: 0,
+                    bananas: 0,
+                    isAlive: true,
+                    isLocal: lp.player_id === currentUser?.id
+                };
+                allPlayersStates[lp.player_id] = playerState;
+                return playerState;
+            });
+
+            // Find local player index
+            localPlayerIndex = multiplayerPlayers.findIndex(p => p.isLocal);
+        }
+
         function subscribeGameUpdates() {
             if (!supabaseClient || !currentLobby) return;
 
-            supabaseClient
+            // Clean up existing channel
+            if (gameChannel) {
+                supabaseClient.removeChannel(gameChannel);
+            }
+
+            gameChannel = supabaseClient
                 .channel(`game:${currentLobby.id}`)
-                .on('broadcast', { event: 'game_update' }, (payload) => {
-                    if (payload.payload.player_id !== currentUser.id) {
-                        opponentScore = payload.payload.score;
-                        opponentBananas = payload.payload.bananas;
-                        if (payload.payload.gameOver) {
-                            // Opponent finished
+                .on('broadcast', { event: 'player_update' }, (payload) => {
+                    const data = payload.payload;
+                    if (data.playerId !== currentUser?.id) {
+                        // Update remote player state
+                        if (allPlayersStates[data.playerId]) {
+                            allPlayersStates[data.playerId].y = data.y;
+                            allPlayersStates[data.playerId].score = data.score;
+                            allPlayersStates[data.playerId].bananas = data.bananas;
+                            allPlayersStates[data.playerId].isAlive = data.isAlive;
                         }
+
+                        // Check if all players are dead (round over)
+                        checkRoundOver();
                     }
+                })
+                .on('broadcast', { event: 'play_again' }, () => {
+                    // Host triggered play again
+                    resetMultiplayerGame();
                 })
                 .subscribe();
         }
 
-        function broadcastGameState(isGameOver = false) {
-            if (!supabaseClient || !currentLobby || gameMode !== 'multiplayer') return;
+        function broadcastPlayerState() {
+            if (!gameChannel || gameMode !== 'multiplayer') return;
 
-            supabaseClient
-                .channel(`game:${currentLobby.id}`)
-                .send({
-                    type: 'broadcast',
-                    event: 'game_update',
-                    payload: {
-                        player_id: currentUser.id,
-                        score: score,
-                        bananas: bananasCollected,
-                        gameOver: isGameOver
-                    }
-                });
+            gameChannel.send({
+                type: 'broadcast',
+                event: 'player_update',
+                payload: {
+                    playerId: currentUser?.id,
+                    playerIndex: localPlayerIndex,
+                    y: player?.y || 0,
+                    score: score,
+                    bananas: bananasCollected,
+                    isAlive: localPlayerAlive
+                }
+            });
+        }
+
+        function checkRoundOver() {
+            if (gameMode !== 'multiplayer') return;
+
+            // Check if all players are dead
+            const allDead = Object.values(allPlayersStates).every(p => !p.isAlive);
+            if (allDead && gameState === 'playing') {
+                endMultiplayerRound();
+            }
+        }
+
+        function endMultiplayerRound() {
+            // Determine results - sort by score descending
+            const results = Object.values(allPlayersStates)
+                .sort((a, b) => b.score - a.score);
+
+            // Find local player's position
+            const localResult = results.find(p => p.isLocal);
+            if (localResult) {
+                const position = results.indexOf(localResult);
+                if (position === 0) {
+                    gameResult = 'win';
+                } else {
+                    gameResult = 'lose';
+                }
+            }
+
+            // Save score for local player
+            if (currentUser) {
+                saveGameScore();
+            }
+
+            gameState = 'multiplayer-results';
+        }
+
+        // Legacy function for compatibility
+        function broadcastGameState(isGameOver = false) {
+            broadcastPlayerState();
         }
 
         async function leaveLobby() {
@@ -2250,6 +2339,11 @@
         // Input handling
         function jump() {
             if (gameState === 'playing') {
+                // Ghosts can't jump in multiplayer
+                if (gameMode === 'multiplayer' && !localPlayerAlive) {
+                    return;
+                }
+
                 if (!player.jumping) {
                     // On ground - jump immediately with screen-scaled velocity
                     player.vy = getJumpVelocity();
@@ -2462,7 +2556,11 @@
                     continue;
                 }
 
-                // Collision detection
+                // Collision detection - skip if player is a ghost in multiplayer
+                if (gameMode === 'multiplayer' && !localPlayerAlive) {
+                    continue;  // Ghost mode - no collisions
+                }
+
                 const pRight = player.x + PLAYER_WIDTH;
                 const pBottom = player.y + PLAYER_HEIGHT;
                 const eRight = ent.x + (ent.pixels[0].length * ent.scale);
@@ -2474,40 +2572,45 @@
                     pBottom > ent.y) {
 
                     if (ent.type === 'obstacle') {
-                        gameState = 'gameover';
+                        if (gameMode === 'multiplayer') {
+                            // In multiplayer: become a ghost, don't end game
+                            localPlayerAlive = false;
 
-                        // Fetch game over stats (before saving so we compare against previous bests)
-                        fetchGameOverStats(score, selectedLand);
+                            // Update local player state
+                            if (allPlayersStates[currentUser?.id]) {
+                                allPlayersStates[currentUser.id].isAlive = false;
+                                allPlayersStates[currentUser.id].score = score;
+                                allPlayersStates[currentUser.id].bananas = bananasCollected;
+                            }
 
-                        // Broadcast final score in multiplayer
-                        const isMultiplayer = gameMode === 'multiplayer';
-                        let didWin = false;
+                            // Broadcast death immediately
+                            broadcastPlayerState();
 
-                        if (isMultiplayer) {
-                            broadcastGameState(true);
-                            // Determine result
-                            if (score > opponentScore) {
-                                gameResult = 'win';
-                                didWin = true;
-                            } else if (score < opponentScore) {
-                                gameResult = 'lose';
-                            } else {
-                                gameResult = 'tie';
+                            // Check if all players dead
+                            checkRoundOver();
+                        } else {
+                            // Solo mode: game over as before
+                            gameState = 'gameover';
+
+                            // Fetch game over stats (before saving so we compare against previous bests)
+                            fetchGameOverStats(score, selectedLand);
+
+                            // Save score if logged in and not already saved
+                            if (!scoreSaved && currentUser) {
+                                scoreSaved = true;
+                                saveScore(score, bananasCollected, selectedLand);
+
+                                // Check achievements (game time in seconds = gameTime / 60 fps)
+                                const gameTimeSeconds = Math.floor(gameTime / 60);
+                                checkAchievements(score, bananasCollected, gameTimeSeconds, false, false);
                             }
                         }
-
-                        // Save score if logged in and not already saved
-                        if (!scoreSaved && currentUser) {
-                            scoreSaved = true;
-                            saveScore(score, bananasCollected, selectedLand);
-
-                            // Check achievements (game time in seconds = gameTime / 60 fps)
-                            const gameTimeSeconds = Math.floor(gameTime / 60);
-                            checkAchievements(score, bananasCollected, gameTimeSeconds, isMultiplayer, didWin);
-                        }
                     } else {
-                        bananasCollected++;
-                        entities.splice(i, 1);
+                        // Banana collection - only if alive
+                        if (gameMode !== 'multiplayer' || localPlayerAlive) {
+                            bananasCollected++;
+                            entities.splice(i, 1);
+                        }
                     }
                 }
             }
@@ -2517,9 +2620,9 @@
 
             scrollOffset = (scrollOffset + speed) % 40;
 
-            // Broadcast game state in multiplayer (every 30 frames)
-            if (gameMode === 'multiplayer' && gameTime % 30 === 0) {
-                broadcastGameState(false);
+            // Broadcast game state in multiplayer (every 10 frames = ~6 updates/sec)
+            if (gameMode === 'multiplayer' && gameTime % 10 === 0) {
+                broadcastPlayerState();
             }
         }
 
@@ -3091,15 +3194,82 @@
                 }
 
             } else if (gameState === 'playing') {
-                // Draw player with land-specific outfit
-                drawSprite(ctx, player.x, player.y, land.runner, player.scale, land.runnerColors);
-
-                // Draw entities
+                // Draw entities first (behind players)
                 entities.forEach(ent => {
                     drawSprite(ctx, ent.x, ent.y, ent.pixels, ent.scale, ent.colors);
                 });
 
-                // Draw scores
+                // In multiplayer, draw all players
+                if (gameMode === 'multiplayer') {
+                    // Update local player state for broadcasting
+                    if (allPlayersStates[currentUser?.id]) {
+                        allPlayersStates[currentUser.id].y = player.y;
+                        allPlayersStates[currentUser.id].score = score;
+                        allPlayersStates[currentUser.id].bananas = bananasCollected;
+                    }
+
+                    // Draw all players (sorted by x position so front players overlap back)
+                    const playersToDraw = Object.values(allPlayersStates)
+                        .sort((a, b) => a.x - b.x);
+
+                    playersToDraw.forEach(p => {
+                        const isLocal = p.id === currentUser?.id;
+                        const yPos = isLocal ? player.y : p.y;
+
+                        // Ghost players are semi-transparent
+                        if (!p.isAlive) {
+                            ctx.globalAlpha = 0.4;
+                        }
+
+                        // Draw player sprite
+                        drawSprite(ctx, p.x, yPos, land.runner, player.scale, land.runnerColors);
+
+                        // Draw username above player
+                        ctx.globalAlpha = p.isAlive ? 1 : 0.5;
+                        ctx.fillStyle = isLocal ? DS.colors.primary : DS.colors.white;
+                        ctx.font = 'bold 12px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(p.username, p.x + PLAYER_WIDTH / 2, yPos - 5);
+
+                        // Ghost label
+                        if (!p.isAlive) {
+                            ctx.fillStyle = '#888';
+                            ctx.font = '10px monospace';
+                            ctx.fillText('GHOST', p.x + PLAYER_WIDTH / 2, yPos - 18);
+                        }
+
+                        ctx.globalAlpha = 1;
+                    });
+
+                    // Show ghost spectating message if dead
+                    if (!localPlayerAlive) {
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                        ctx.fillRect(0, 0, canvas.width, 40);
+                        ctx.fillStyle = DS.colors.primary;
+                        ctx.font = 'bold 16px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('👻 SPECTATING - Waiting for others to finish...', canvas.width / 2, 26);
+                    }
+
+                    // Show all player scores on the right
+                    ctx.textAlign = 'right';
+                    let scoreY = 35;
+                    Object.values(allPlayersStates)
+                        .sort((a, b) => b.score - a.score)
+                        .forEach((p, i) => {
+                            const isLocal = p.id === currentUser?.id;
+                            ctx.fillStyle = isLocal ? DS.colors.primary : (p.isAlive ? '#333' : '#888');
+                            ctx.font = `${isLocal ? 'bold ' : ''}14px monospace`;
+                            const status = p.isAlive ? '' : ' 👻';
+                            ctx.fillText(`${p.username}: ${p.score}${status}`, canvas.width - 20, scoreY);
+                            scoreY += 20;
+                        });
+                } else {
+                    // Solo mode - draw single player
+                    drawSprite(ctx, player.x, player.y, land.runner, player.scale, land.runnerColors);
+                }
+
+                // Draw local scores (left side)
                 ctx.fillStyle = '#000';
                 ctx.font = 'bold 28px monospace';
                 ctx.textAlign = 'left';
@@ -3110,14 +3280,8 @@
                 ctx.fillStyle = '#666';
                 ctx.font = '18px monospace';
                 ctx.textAlign = 'right';
-                ctx.fillText(land.name, canvas.width - 20, 35);
-
-                // Show opponent score in multiplayer
-                if (gameMode === 'multiplayer') {
-                    ctx.fillStyle = '#E53935';
-                    ctx.font = 'bold 22px monospace';
-                    ctx.textAlign = 'right';
-                    ctx.fillText(`Opponent: ${opponentScore}`, canvas.width - 20, 70);
+                if (gameMode !== 'multiplayer') {
+                    ctx.fillText(land.name, canvas.width - 20, 35);
                 }
 
             } else if (gameState === 'gameover') {
@@ -3275,6 +3439,96 @@
                 const menuBtnHeight = Math.max(40, DS.button.height() * 0.8);
                 const menuBtnBounds = drawStyledButton(centerX, y, menuBtnWidth, menuBtnHeight, 'MENU', { action: 'back', primary: false });
                 addClickable(menuBtnBounds);
+
+            } else if (gameState === 'multiplayer-results') {
+                // Multiplayer round results screen
+                resetClickables();
+                ctx.fillStyle = DS.colors.bgOverlay;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const centerX = canvas.width / 2;
+                let y = DS.spacing.xl;
+
+                // Title
+                ctx.textAlign = 'center';
+                ctx.fillStyle = DS.colors.primary;
+                ctx.font = DS.font('h1', 'bold');
+                ctx.fillText('ROUND OVER', centerX, y + DS.fontSize('h1'));
+                y += DS.fontSize('h1') + DS.spacing.lg;
+
+                // Result message
+                if (gameResult === 'win') {
+                    ctx.fillStyle = DS.colors.success;
+                    ctx.font = DS.font('h2', 'bold');
+                    ctx.fillText('🏆 YOU WON!', centerX, y + DS.fontSize('h2'));
+                } else {
+                    ctx.fillStyle = DS.colors.error;
+                    ctx.font = DS.font('h2', 'bold');
+                    ctx.fillText('Better luck next time!', centerX, y + DS.fontSize('h2'));
+                }
+                y += DS.fontSize('h2') + DS.spacing.xl;
+
+                // Leaderboard panel
+                const panelWidth = Math.min(400, canvas.width - DS.spacing.lg * 2);
+                const results = Object.values(allPlayersStates)
+                    .sort((a, b) => b.score - a.score);
+                const rowHeight = 36;
+                const panelHeight = rowHeight * (results.length + 1) + DS.spacing.lg * 2;
+
+                drawPanel(centerX, y, panelWidth, panelHeight, { centered: true });
+
+                // Header row
+                const tableStartY = y + DS.spacing.lg;
+                const panelLeft = centerX - panelWidth / 2;
+                const colRank = panelLeft + DS.spacing.md;
+                const colPlayer = panelLeft + DS.spacing.xl * 1.5;
+                const colScore = panelLeft + panelWidth - DS.spacing.lg - 60;
+                const colBananas = panelLeft + panelWidth - DS.spacing.md;
+
+                ctx.fillStyle = DS.colors.textMuted;
+                ctx.font = DS.font('small', 'bold');
+                ctx.textAlign = 'left';
+                ctx.fillText('#', colRank, tableStartY + rowHeight / 2);
+                ctx.fillText('PLAYER', colPlayer, tableStartY + rowHeight / 2);
+                ctx.textAlign = 'right';
+                ctx.fillText('SCORE', colScore, tableStartY + rowHeight / 2);
+                ctx.fillText('🍌', colBananas, tableStartY + rowHeight / 2);
+
+                // Player rows
+                results.forEach((p, i) => {
+                    const rowY = tableStartY + (i + 1) * rowHeight + rowHeight / 2;
+                    const isLocal = p.id === currentUser?.id;
+                    const medal = i === 0 ? '🥇' : (i === 1 ? '🥈' : (i === 2 ? '🥉' : ''));
+
+                    ctx.fillStyle = isLocal ? DS.colors.primary : DS.colors.white;
+                    ctx.font = DS.font('body', isLocal ? 'bold' : 'normal');
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`${medal || (i + 1)}`, colRank, rowY);
+                    ctx.fillText(p.username + (isLocal ? ' (You)' : ''), colPlayer, rowY);
+                    ctx.textAlign = 'right';
+                    ctx.fillText(p.score.toString(), colScore, rowY);
+                    ctx.fillText(p.bananas.toString(), colBananas, rowY);
+                });
+
+                y += panelHeight + DS.spacing.xl;
+
+                // Buttons
+                const btnWidth = Math.min(200, canvas.width - DS.spacing.xl * 2);
+                const btnHeight = DS.button.height();
+
+                if (isLobbyHost) {
+                    const playAgainBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'PLAY AGAIN', { action: 'play_again', primary: true });
+                    addClickable(playAgainBounds);
+                    y += btnHeight + DS.spacing.md;
+                } else {
+                    ctx.fillStyle = DS.colors.textMuted;
+                    ctx.font = DS.font('body');
+                    ctx.fillText('Waiting for host to start next round...', centerX, y + DS.fontSize('body') / 2);
+                    y += DS.fontSize('body') + DS.spacing.md;
+                }
+
+                const leaveBounds = drawStyledButton(centerX, y, btnWidth, btnHeight, 'LEAVE LOBBY', { action: 'leave_results', primary: false });
+                addClickable(leaveBounds);
             }
 
             // Draw notifications on top of everything
