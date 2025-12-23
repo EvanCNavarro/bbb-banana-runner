@@ -1252,28 +1252,30 @@
                     }
                 }
 
-                // ANTI-CHEAT: On significant resize during gameplay, clear all entities
-                // This prevents position-based exploits where entities could be
-                // at inconsistent positions after orientation change
-                if (significantChange && gameState === 'playing' && entities.length > 0) {
-                    entities.length = 0; // Clear all entities
-                    spawnCounter = 0; // Reset spawn counter for fair new spawns
-                }
-                // For minor resizes, just update entity positions
-                else if (entities && entities.length > 0) {
+                // Reposition all entities on resize (including orientation change)
+                // Entities keep their X position but Y adjusts to new ground level
+                if (entities && entities.length > 0) {
                     const newGroundLevel = canvas.height - 70;
+                    const widthRatio = canvas.width / oldWidth;
+
                     for (let i = entities.length - 1; i >= 0; i--) {
                         const ent = entities[i];
                         const entHeight = ent.pixels.length * ent.scale;
 
+                        // Scale X position proportionally for width changes
+                        if (significantChange && widthRatio !== 1) {
+                            ent.x = ent.x * widthRatio;
+                        }
+
+                        // Snap to new ground level
                         if (ent.type === 'obstacle') {
                             ent.y = newGroundLevel - entHeight;
                         } else if (ent.type === 'banana') {
                             ent.y = newGroundLevel - entHeight - BANANA_HEIGHT_OFFSET;
                         }
 
-                        // Remove entities now off-screen
-                        if (ent.x > canvas.width + 100 || ent.x < -100) {
+                        // Remove entities now off-screen (but keep ones ahead)
+                        if (ent.x < -100) {
                             entities.splice(i, 1);
                         }
                     }
