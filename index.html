@@ -457,14 +457,21 @@
         }
 
         async function loadUserProfile() {
-            if (!supabaseClient || !currentUser) return;
+            console.log('[loadUserProfile] Starting...');
+            if (!supabaseClient || !currentUser) {
+                console.log('[loadUserProfile] Missing supabaseClient or currentUser, returning');
+                return;
+            }
 
+            console.log('[loadUserProfile] Querying profiles table for id:', currentUser.id);
             try {
                 const { data, error } = await supabaseClient
                     .from('profiles')
                     .select('*')
                     .eq('id', currentUser.id)
                     .single();
+
+                console.log('[loadUserProfile] Query complete. data:', data, 'error:', error);
 
                 if (error) {
                     console.error('Error loading profile:', error);
@@ -477,8 +484,12 @@
                     userProfile = data;
                 }
 
+                console.log('[loadUserProfile] userProfile set to:', userProfile);
+
                 // Also load skins and achievements
+                console.log('[loadUserProfile] Calling loadPlayerProgress...');
                 await loadPlayerProgress();
+                console.log('[loadUserProfile] loadPlayerProgress complete');
             } catch (err) {
                 console.error('LoadUserProfile error:', err);
                 // Fallback profile
@@ -487,6 +498,7 @@
                     username: currentUser.user_metadata?.username || 'Player'
                 };
             }
+            console.log('[loadUserProfile] Done');
         }
 
         // Convert username to internal email format for Supabase auth
@@ -594,9 +606,25 @@
                     console.log('Setting currentUser:', data.user.id);
                     currentUser = data.user;
 
-                    console.log('Loading user profile...');
-                    await loadUserProfile();
-                    console.log('Profile loaded:', userProfile);
+                    // Create a minimal fallback profile from auth data
+                    userProfile = {
+                        id: data.user.id,
+                        username: data.user.user_metadata?.username || 'Player'
+                    };
+
+                    console.log('Loading user profile (with 5s timeout)...');
+                    // Try to load full profile, but don't block login if it fails/hangs
+                    try {
+                        const profilePromise = loadUserProfile();
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Profile load timeout')), 5000)
+                        );
+                        await Promise.race([profilePromise, timeoutPromise]);
+                        console.log('Profile loaded:', userProfile);
+                    } catch (profileErr) {
+                        console.warn('Profile load issue (continuing with fallback):', profileErr);
+                        // userProfile already has fallback values set above
+                    }
 
                     console.log('Updating display...');
                     updateUserDisplay();
@@ -988,15 +1016,21 @@
         // SKINS & ACHIEVEMENTS FUNCTIONS
         // ============================================
         async function loadPlayerProgress() {
-            if (!supabaseClient || !currentUser) return;
+            console.log('[loadPlayerProgress] Starting...');
+            if (!supabaseClient || !currentUser) {
+                console.log('[loadPlayerProgress] Missing supabaseClient or currentUser');
+                return;
+            }
 
             try {
                 // Load unlocked skins
+                console.log('[loadPlayerProgress] Querying player_skins...');
                 const { data: skins, error: skinsError } = await supabaseClient
                     .from('player_skins')
                     .select('skin_id')
                     .eq('player_id', currentUser.id);
 
+                console.log('[loadPlayerProgress] Skins query done:', skins, skinsError);
                 if (!skinsError && skins) {
                     unlockedSkins = ['default', ...skins.map(s => s.skin_id)];
                 }
@@ -1007,11 +1041,13 @@
                 }
 
                 // Load achievements
+                console.log('[loadPlayerProgress] Querying player_achievements...');
                 const { data: achievements, error: achievementsError } = await supabaseClient
                     .from('player_achievements')
                     .select('achievement_id')
                     .eq('player_id', currentUser.id);
 
+                console.log('[loadPlayerProgress] Achievements query done:', achievements, achievementsError);
                 if (!achievementsError && achievements) {
                     unlockedAchievements = achievements.map(a => a.achievement_id);
                 }
@@ -1019,6 +1055,7 @@
                 console.error('Error loading player progress:', err);
                 // Continue anyway - skins/achievements are not critical
             }
+            console.log('[loadPlayerProgress] Done');
         }
 
         async function unlockSkin(skinId) {
