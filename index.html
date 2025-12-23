@@ -729,7 +729,7 @@
         // ============================================
         // SCORE PERSISTENCE
         // ============================================
-        async function saveScore(finalScore, bananas, landPlayed) {
+        async function saveScore(finalScore, bananas, landPlayed, isMultiplayer = false, didWin = false) {
             if (!supabaseClient || !currentUser) return;
 
             // Calculate game duration in seconds (gameTime is in frames at 60fps)
@@ -743,7 +743,7 @@
                     score: finalScore,
                     bananas_collected: bananas,
                     land_played: landPlayed,
-                    game_mode: 'solo',
+                    game_mode: isMultiplayer ? 'multiplayer' : 'solo',
                     duration: gameDurationSeconds,
                     highest_level: highestLevelReached,
                     jetpacks_used: sessionJetpacksCollected,
@@ -811,6 +811,14 @@
 
                     // Update local playerStats object for achievement checking
                     Object.assign(playerStats, updates);
+
+                    // Track multiplayer stats locally (for achievement checking)
+                    if (isMultiplayer) {
+                        playerStats.multiplayer_games = (playerStats.multiplayer_games || 0) + 1;
+                        if (didWin) {
+                            playerStats.multiplayer_wins = (playerStats.multiplayer_wins || 0) + 1;
+                        }
+                    }
                 }
             }
         }
@@ -1259,10 +1267,16 @@
                 }
             }
 
-            // Save score for local player
+            // Save score for local player and check achievements
             if (currentUser && !scoreSaved) {
                 scoreSaved = true;
-                saveScore(score, bananasCollected, selectedLand);
+                const gameTimeSeconds = Math.floor(gameTime / 60);
+                const didWin = gameResult === 'win';
+
+                // Wait for score to save (with multiplayer flags), then check achievements
+                saveScore(score, bananasCollected, selectedLand, true, didWin).then(() => {
+                    checkAchievements(score, bananasCollected, gameTimeSeconds, true, didWin);
+                });
             }
 
             gameState = 'multiplayer-results';
@@ -5292,11 +5306,12 @@
                             // Save score if logged in and not already saved
                             if (!scoreSaved && currentUser) {
                                 scoreSaved = true;
-                                saveScore(score, bananasCollected, selectedLand);
-
-                                // Check achievements (game time in seconds = gameTime / 60 fps)
                                 const gameTimeSeconds = Math.floor(gameTime / 60);
-                                checkAchievements(score, bananasCollected, gameTimeSeconds, false, false);
+
+                                // Wait for score to save, then check achievements
+                                saveScore(score, bananasCollected, selectedLand).then(() => {
+                                    checkAchievements(score, bananasCollected, gameTimeSeconds, false, false);
+                                });
                             }
                         }
                     } else if (ent.type === 'banana') {
@@ -5565,19 +5580,28 @@
 
                 let y = isCompact ? DS.spacing.lg : DS.spacing.xxl;
 
-                // Title - smaller on compact
-                ctx.textAlign = 'center';
-                ctx.fillStyle = DS.colors.primary;
+                // Title with banana logo on left - smaller on compact
                 const titleSize = isCompact ? 'h2' : 'h1';
-                ctx.font = DS.font(titleSize, 'bold');
-                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize(titleSize));
-                y += DS.fontSize(titleSize) + (isCompact ? DS.spacing.md : DS.spacing.lg);
-
-                // Draw banana sprite as logo - smaller on compact
                 const bananaScale = isCompact ? Math.max(1, Math.round(canvas.width / 500)) : Math.max(2, Math.round(canvas.width / 400));
                 const bananaWidth = sprites.banana[0].length * bananaScale;
-                drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
-                y += sprites.banana.length * bananaScale + (isCompact ? DS.spacing.md : DS.spacing.xl);
+                const bananaHeight = sprites.banana.length * bananaScale;
+
+                ctx.font = DS.font(titleSize, 'bold');
+                const titleWidth = ctx.measureText('BANANA RUNNER').width;
+                const logoGap = isCompact ? DS.spacing.sm : DS.spacing.md;
+                const totalWidth = bananaWidth + logoGap + titleWidth;
+                const startX = centerX - totalWidth / 2;
+
+                // Draw banana logo
+                const logoY = y + (DS.fontSize(titleSize) - bananaHeight) / 2;
+                drawSprite(ctx, startX, logoY, sprites.banana, bananaScale, colors.banana);
+
+                // Draw title text
+                ctx.textAlign = 'left';
+                ctx.fillStyle = DS.colors.primary;
+                ctx.fillText('BANANA RUNNER', startX + bananaWidth + logoGap, y + DS.fontSize(titleSize));
+                ctx.textAlign = 'center'; // Reset for other elements
+                y += DS.fontSize(titleSize) + (isCompact ? DS.spacing.md : DS.spacing.lg);
 
                 // Tagline
                 ctx.fillStyle = DS.colors.textPrimary;
@@ -5634,19 +5658,28 @@
 
                 let y = isCompact ? DS.spacing.md : DS.spacing.xl;
 
-                // Title - smaller on compact screens
-                ctx.textAlign = 'center';
-                ctx.fillStyle = DS.colors.white;
+                // Title with banana logo on left - smaller on compact screens
                 const titleSize = isCompact ? 'h2' : 'h1';
-                ctx.font = DS.font(titleSize, 'bold');
-                ctx.fillText('BANANA RUNNER', centerX, y + DS.fontSize(titleSize));
-                y += DS.fontSize(titleSize) + compactSpacing;
-
-                // Draw banana sprite as logo - smaller on compact
                 const bananaScale = isCompact ? Math.max(1, Math.round(canvas.width / 500)) : Math.max(2, Math.round(canvas.width / 400));
                 const bananaWidth = sprites.banana[0].length * bananaScale;
-                drawSprite(ctx, centerX - bananaWidth / 2, y, sprites.banana, bananaScale, colors.banana);
-                y += sprites.banana.length * bananaScale + compactLgSpacing;
+                const bananaHeight = sprites.banana.length * bananaScale;
+
+                ctx.font = DS.font(titleSize, 'bold');
+                const titleWidth = ctx.measureText('BANANA RUNNER').width;
+                const logoGap = isCompact ? DS.spacing.sm : DS.spacing.md;
+                const totalWidth = bananaWidth + logoGap + titleWidth;
+                const startX = centerX - totalWidth / 2;
+
+                // Draw banana logo
+                const logoY = y + (DS.fontSize(titleSize) - bananaHeight) / 2;
+                drawSprite(ctx, startX, logoY, sprites.banana, bananaScale, colors.banana);
+
+                // Draw title text
+                ctx.textAlign = 'left';
+                ctx.fillStyle = DS.colors.white;
+                ctx.fillText('BANANA RUNNER', startX + bananaWidth + logoGap, y + DS.fontSize(titleSize));
+                ctx.textAlign = 'center'; // Reset for other elements
+                y += DS.fontSize(titleSize) + compactLgSpacing;
 
                 // User stats panel - condensed on compact
                 if (userProfile) {
