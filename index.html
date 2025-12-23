@@ -2815,7 +2815,8 @@
                 animalObstacle: sprites.penguin,      // Animal at 5000+ points
                 animalObstacleColors: colors.penguin,
                 runner: sprites.runnerSnow,
-                runnerColors: colors.runnerSnow
+                runnerColors: colors.runnerSnow,
+                floatingTextColor: '#1A237E'  // Dark indigo - contrasts with light blue sky
             },
             desert: {
                 name: 'Desert',
@@ -2828,7 +2829,8 @@
                 animalObstacle: sprites.scorpion,     // Animal at 5000+ points
                 animalObstacleColors: colors.scorpion,
                 runner: sprites.runnerDesert,
-                runnerColors: colors.runnerDesert
+                runnerColors: colors.runnerDesert,
+                floatingTextColor: '#4A148C'  // Deep purple - contrasts with tan/cream sky
             },
             jungle: {
                 name: 'Jungle',
@@ -2841,7 +2843,8 @@
                 animalObstacle: sprites.monkey,       // Animal at 5000+ points
                 animalObstacleColors: colors.monkey,
                 runner: sprites.runnerJungle,
-                runnerColors: colors.runnerJungle
+                runnerColors: colors.runnerJungle,
+                floatingTextColor: '#FFD600'  // Bright yellow - contrasts with green sky
             },
             ocean: {
                 name: 'Ocean',
@@ -2854,7 +2857,8 @@
                 animalObstacle: sprites.crab,         // Animal at 5000+ points
                 animalObstacleColors: colors.crab,
                 runner: sprites.runnerOcean,
-                runnerColors: colors.runnerOcean
+                runnerColors: colors.runnerOcean,
+                floatingTextColor: '#FFAB00'  // Bright amber - contrasts with dark blue sky
             }
         };
 
@@ -3067,12 +3071,11 @@
         // ============================================
         let floatingTexts = [];
 
-        function spawnFloatingText(x, y, text, color = '#FFE135') {
+        function spawnFloatingText(x, y, text) {
             floatingTexts.push({
                 x: x,
                 y: y,
                 text: text,
-                color: color,
                 life: 0,
                 maxLife: 45, // ~0.75 seconds at 60fps
                 vy: -2 // Float upward
@@ -3091,11 +3094,15 @@
         }
 
         function drawFloatingTexts() {
+            // Get contrasting color based on current land
+            const land = lands[selectedLand];
+            const textColor = land?.floatingTextColor || '#FFFFFF';
+
             floatingTexts.forEach(ft => {
                 const alpha = 1 - (ft.life / ft.maxLife);
                 ctx.globalAlpha = alpha;
-                ctx.fillStyle = ft.color;
-                ctx.font = 'bold 16px monospace';
+                ctx.fillStyle = textColor;
+                ctx.font = 'bold 24px monospace';  // Larger text (score display is 28px)
                 ctx.textAlign = 'center';
                 ctx.fillText(ft.text, ft.x, ft.y);
             });
@@ -3843,7 +3850,7 @@
             if (gameState !== 'playing') return;
 
             gameTime++;
-            speed += 0.002; // Gradually increase speed
+            speed += 0.001; // Gradually increase speed (reduced from 0.002)
             spawnCounter += speed;
 
             // Spawn logic (deterministic spacing for multiplayer sync)
@@ -3958,7 +3965,7 @@
                         if (gameMode !== 'multiplayer' || localPlayerAlive) {
                             bananasCollected++;
                             // Show floating +150 above player
-                            spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+150', '#FFE135');
+                            spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 10, '+150');
                             entities.splice(i, 1);
                             // Debug log for multiplayer
                             if (gameMode === 'multiplayer') {
@@ -3988,7 +3995,7 @@
 
                         // Show floating text above player
                         const bonusText = `+${bonus}`;
-                        spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 30, bonusText, '#4CAF50');
+                        spawnFloatingText(player.x + PLAYER_WIDTH / 2, player.y - 30, bonusText);
                     }
                 }
             }
