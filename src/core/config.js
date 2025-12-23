@@ -57,13 +57,13 @@ export const JUMP_BUFFER_MS = 150;
  * Initial game scroll speed (pixels per frame at 60fps)
  * @constant {number}
  */
-export const INITIAL_SPEED = 7;
+export const INITIAL_SPEED = 8;
 
 /**
  * Speed increase per frame (acceleration, normalized to 60fps)
  * @constant {number}
  */
-export const SPEED_INCREMENT = 0.0005;
+export const SPEED_INCREMENT = 0.0006;
 
 /**
  * Jump velocity (negative = upward)

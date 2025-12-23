@@ -4714,14 +4714,14 @@
             },
             bubble_collector: {
                 name: 'Bubble Master',
-                description: 'Collect 10 Bubble Shields',
+                description: 'Collect 10 Bubble Shields (total)',
                 reward: 25,
                 requirement: { type: 'bubbles_collected', value: 10 },
                 category: 'powerups'
             },
             bubble_savior: {
                 name: 'Life Saver',
-                description: 'Have bubbles absorb 5 hits total',
+                description: 'Have bubbles absorb 5 hits (total)',
                 reward: 50,
                 requirement: { type: 'bubble_hits_absorbed', value: 5 },
                 category: 'powerups'
@@ -4739,14 +4739,14 @@
             },
             pogo_collector: {
                 name: 'Spring Loaded',
-                description: 'Collect 10 Pogo Sticks',
+                description: 'Collect 10 Pogo Sticks (total)',
                 reward: 25,
                 requirement: { type: 'pogos_collected', value: 10 },
                 category: 'powerups'
             },
             pogo_master: {
                 name: 'Pogo Pro',
-                description: 'Collect 25 Pogo Sticks',
+                description: 'Collect 25 Pogo Sticks (total)',
                 reward: 50,
                 requirement: { type: 'pogos_collected', value: 25 },
                 category: 'powerups'
@@ -5141,10 +5141,9 @@
             // Scale velocity (sqrt for more natural feel - half height = ~70% velocity)
             let velocity = BASE_JUMP_VELOCITY * Math.sqrt(heightRatio);
 
-            // POGO STICK BOOST: Each pogo adds 25% more height (1.25^count)
-            // 1 pogo = 1.25x, 2 pogos = 1.56x, 3 pogos = 1.95x
+            // POGO STICK BOOST: 15% more jump height when active
             if (pogoStickCount > 0) {
-                velocity *= Math.pow(1.25, pogoStickCount);
+                velocity *= 1.15;
             }
 
             return velocity;
@@ -5602,14 +5601,13 @@
             const land = lands[selectedLand];
             jetpackSpawnCounter++;
 
-            // Check for power-up spawn (somewhat rare, but more frequent than before)
-            // Starts having a chance after 10 spawns, increases each spawn
-            // By spawn 30, it's very likely if not already spawned
-            // Level bonus: +2% chance per level (rewards surviving longer)
+            // Check for power-up spawn (rare - rewards skill/survival)
+            // Starts having a chance after 15 spawns, increases slowly
+            // Level bonus: +1% chance per level (rewards surviving longer)
             const currentLevel = getCurrentLevel(score);
-            const levelBonus = currentLevel * 0.02; // +2% per level
-            const baseChance = Math.max(0, (jetpackSpawnCounter - 10) * 0.03); // 0% at 10, 30% at 20, 60% at 30
-            const powerUpChance = Math.min(0.7, baseChance + levelBonus); // Cap at 70%
+            const levelBonus = currentLevel * 0.01; // +1% per level
+            const baseChance = Math.max(0, (jetpackSpawnCounter - 15) * 0.02); // 0% at 15, 20% at 25, 40% at 35
+            const powerUpChance = Math.min(0.5, baseChance + levelBonus); // Cap at 50%
             const shouldSpawnPowerUp = getRandom() < powerUpChance;
 
             if (shouldSpawnPowerUp) {
