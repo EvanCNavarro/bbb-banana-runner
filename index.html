@@ -570,12 +570,14 @@
             const email = usernameToEmail(username);
 
             try {
+                console.log('Attempting sign in for:', email);
                 const { data, error } = await supabaseClient.auth.signInWithPassword({
                     email,
                     password
                 });
 
                 if (error) {
+                    console.error('Sign in error from Supabase:', error);
                     // Make error messages more user-friendly
                     if (error.message.includes('Invalid login')) {
                         showAuthError('Invalid username or password');
@@ -585,19 +587,30 @@
                     return false;
                 }
 
+                console.log('Sign in successful, data:', data);
+
                 // Set user immediately (don't wait for onAuthStateChange)
                 if (data && data.user) {
+                    console.log('Setting currentUser:', data.user.id);
                     currentUser = data.user;
+
+                    console.log('Loading user profile...');
                     await loadUserProfile();
+                    console.log('Profile loaded:', userProfile);
+
+                    console.log('Updating display...');
                     updateUserDisplay();
+
+                    console.log('Closing modal and going to menu...');
                     closeAuthModal();
                     return true;
                 } else {
+                    console.error('No user in response data');
                     showAuthError('Login failed - please try again');
                     return false;
                 }
             } catch (err) {
-                console.error('SignIn error:', err);
+                console.error('SignIn caught error:', err);
                 showAuthError('Login failed - please try again');
                 return false;
             }
@@ -977,29 +990,34 @@
         async function loadPlayerProgress() {
             if (!supabaseClient || !currentUser) return;
 
-            // Load unlocked skins
-            const { data: skins } = await supabaseClient
-                .from('player_skins')
-                .select('skin_id')
-                .eq('player_id', currentUser.id);
+            try {
+                // Load unlocked skins
+                const { data: skins, error: skinsError } = await supabaseClient
+                    .from('player_skins')
+                    .select('skin_id')
+                    .eq('player_id', currentUser.id);
 
-            if (skins) {
-                unlockedSkins = ['default', ...skins.map(s => s.skin_id)];
-            }
+                if (!skinsError && skins) {
+                    unlockedSkins = ['default', ...skins.map(s => s.skin_id)];
+                }
 
-            // Load equipped skin from profile
-            if (userProfile?.equipped_skin) {
-                selectedSkin = userProfile.equipped_skin;
-            }
+                // Load equipped skin from profile
+                if (userProfile?.equipped_skin) {
+                    selectedSkin = userProfile.equipped_skin;
+                }
 
-            // Load achievements
-            const { data: achievements } = await supabaseClient
-                .from('player_achievements')
-                .select('achievement_id')
-                .eq('player_id', currentUser.id);
+                // Load achievements
+                const { data: achievements, error: achievementsError } = await supabaseClient
+                    .from('player_achievements')
+                    .select('achievement_id')
+                    .eq('player_id', currentUser.id);
 
-            if (achievements) {
-                unlockedAchievements = achievements.map(a => a.achievement_id);
+                if (!achievementsError && achievements) {
+                    unlockedAchievements = achievements.map(a => a.achievement_id);
+                }
+            } catch (err) {
+                console.error('Error loading player progress:', err);
+                // Continue anyway - skins/achievements are not critical
             }
         }
 
