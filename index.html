@@ -767,91 +767,69 @@
                 // Don't return - still try to update profile even if session save fails
             }
 
-            // Update profile stats with core tracking
-            // Note: Only using columns from base schema to avoid DB errors
+            // Update profile stats - ONLY high_score to minimize failure points
             if (userProfile) {
-                const now = new Date().toISOString();
-                const updates = {
-                    // Core stats (base schema columns)
-                    total_games: (userProfile.total_games || 0) + 1,
-                    total_bananas: (userProfile.total_bananas || 0) + bananas,
-                    total_score: (userProfile.total_score || 0) + finalScore,
-                    spendable_bananas: (userProfile.spendable_bananas || 0) + bananas,
-                    total_time_played: (userProfile.total_time_played || 0) + gameDurationSeconds,
+                console.log('[SaveScore] Starting profile update...');
+                console.log('[SaveScore] Current user ID:', currentUser.id);
 
-                    // Timestamps
-                    last_game_at: now
-                };
-
-                // Set first_game_at if this is the first game
-                if (!userProfile.first_game_at) {
-                    updates.first_game_at = now;
-                }
-
-                // Update high score if this is a new personal best
-                console.log('[SaveScore] Checking high score:', {
+                // Check if this is a new high score
+                const isNewHighScore = finalScore > (userProfile.high_score || 0);
+                console.log('[SaveScore] High score check:', {
                     finalScore: finalScore,
-                    currentHighScore: userProfile.high_score,
-                    isNewBest: finalScore > (userProfile.high_score || 0)
+                    currentHighScore: userProfile.high_score || 0,
+                    isNewHighScore: isNewHighScore
                 });
-                if (finalScore > (userProfile.high_score || 0)) {
-                    updates.high_score = finalScore;
-                    console.log('[SaveScore] NEW HIGH SCORE! Setting to:', finalScore);
-                }
 
-                // Update highest level reached if this game reached higher
-                if (highestLevelReached > (userProfile.highest_level_reached || 0)) {
-                    updates.highest_level_reached = highestLevelReached;
-                }
+                if (isNewHighScore) {
+                    console.log('[SaveScore] NEW HIGH SCORE! Attempting to save:', finalScore);
 
-                // Update land-specific stats
-                const landKey = landPlayed.toLowerCase();
-                const landGamesKey = `${landKey}_games_played`;
-                const landBestKey = `${landKey}_best_score`;
-
-                updates[landGamesKey] = (userProfile[landGamesKey] || 0) + 1;
-
-                if (finalScore > (userProfile[landBestKey] || 0)) {
-                    updates[landBestKey] = finalScore;
-                }
-
-                const { error: updateError } = await supabaseClient
-                    .from('profiles')
-                    .update(updates)
-                    .eq('id', currentUser.id);
-
-                if (updateError) {
-                    console.error('Error updating profile:', updateError);
-                    console.error('Updates attempted:', updates);
-                } else {
-                    console.log('Profile updated successfully. High score:', updates.high_score || 'unchanged');
-                    userProfile = { ...userProfile, ...updates };
-                    spendableBananas = userProfile.spendable_bananas;  // Update local state
-
-                    // Update local playerStats object for achievement checking
-                    Object.assign(playerStats, updates);
-                }
-
-                // Save multiplayer stats to database (separate update to handle the isMultiplayer flag)
-                if (isMultiplayer) {
-                    const mpUpdates = {
-                        multiplayer_games: (userProfile.multiplayer_games || 0) + 1
-                    };
-                    if (didWin) {
-                        mpUpdates.multiplayer_wins = (userProfile.multiplayer_wins || 0) + 1;
-                    }
-
-                    const { error: mpError } = await supabaseClient
+                    // MINIMAL UPDATE - just high_score to avoid any column issues
+                    const { data, error: updateError } = await supabaseClient
                         .from('profiles')
-                        .update(mpUpdates)
+                        .update({ high_score: finalScore })
+                        .eq('id', currentUser.id)
+                        .select();
+
+                    console.log('[SaveScore] Update response:', { data, error: updateError });
+
+                    if (updateError) {
+                        console.error('[SaveScore] ERROR updating high score:', updateError);
+                    } else {
+                        console.log('[SaveScore] SUCCESS! High score updated to:', finalScore);
+                        userProfile.high_score = finalScore;
+                    }
+                }
+
+                // Now try to update other stats separately (so high score isn't blocked)
+                try {
+                    const now = new Date().toISOString();
+                    const otherUpdates = {
+                        total_games: (userProfile.total_games || 0) + 1,
+                        total_bananas: (userProfile.total_bananas || 0) + bananas,
+                        total_score: (userProfile.total_score || 0) + finalScore,
+                        spendable_bananas: (userProfile.spendable_bananas || 0) + bananas,
+                        last_game_at: now
+                    };
+
+                    const { error: statsError } = await supabaseClient
+                        .from('profiles')
+                        .update(otherUpdates)
                         .eq('id', currentUser.id);
 
-                    if (!mpError) {
-                        userProfile = { ...userProfile, ...mpUpdates };
-                        Object.assign(playerStats, mpUpdates);
+                    if (statsError) {
+                        console.error('[SaveScore] Error updating other stats:', statsError);
+                    } else {
+                        console.log('[SaveScore] Other stats updated successfully');
+                        userProfile = { ...userProfile, ...otherUpdates };
+                        spendableBananas = userProfile.spendable_bananas;
+                        Object.assign(playerStats, otherUpdates);
                     }
+                } catch (err) {
+                    console.error('[SaveScore] Exception updating stats:', err);
                 }
             }
+
+            console.log('[SaveScore] Complete. Final userProfile.high_score:', userProfile?.high_score);
         }
 
         async function getLeaderboard(land = null, limit = 10) {
